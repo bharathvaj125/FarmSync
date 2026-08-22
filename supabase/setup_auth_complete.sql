@@ -103,7 +103,7 @@ begin
     confirmation_token, recovery_token, email_change_token_new, email_change
   ) values (
     '00000000-0000-0000-0000-000000000000', new_id, 'authenticated', 'authenticated',
-    p_email, crypt(p_password, gen_salt('bf')),
+    p_email, extensions.crypt(p_password, extensions.gen_salt('bf')),
     now(), now(), now(),
     '{"provider":"email","providers":["email"]}'::jsonb,
     jsonb_build_object('role', p_role, 'display_name', p_display_name),
@@ -122,7 +122,7 @@ begin
 
   return new_id;
 end;
-$$ language plpgsql security definer set search_path = public, auth;
+$$ language plpgsql security definer set search_path = public, auth, extensions;
 
 -- Every account below uses the password: farmsync123
 select public.create_demo_user('admin@farmsync.demo',      'farmsync123', 'admin',     'Platform Admin');
