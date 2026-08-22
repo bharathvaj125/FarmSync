@@ -319,7 +319,11 @@ export default function ConfirmTransaction() {
   if (mode === 'accepted') {
     const isFarmer = profile?.id === harvest.owner_id
     const isBuyer = profile?.id === demand.owner_id
-    const produceCost = terms.quantity_kg * terms.unit_price
+    // One combined real-money payment -- produce cost plus transport
+    // cost, both actual cash. The farmer is then responsible for
+    // separately settling the transport share with the transporter,
+    // off-platform (their contact is shown below for exactly that).
+    const combinedAmount = terms.quantity_kg * terms.unit_price + terms.transport_cost
     return (
       <main className="mx-auto max-w-lg px-8 py-10">
         <div className="rounded-2xl border border-brand-200 bg-brand-50 p-6 text-center">
@@ -361,16 +365,20 @@ export default function ConfirmTransaction() {
             />
           )}
         </div>
+        {assignedTruck && (
+          <p className="mt-2 text-xs text-sand-500">
+            The buyer's payment below covers produce + transport together. {harvest.farmer_name} is responsible
+            for separately paying {assignedTruck.truck_owner_name} their {inr(terms.transport_cost)} share.
+          </p>
+        )}
 
         <PaymentSection
           transaction={transaction}
           isBuyer={isBuyer}
           farmerContact={farmerContact}
-          transporterContact={transporterContact}
           buyerName={demand.buyer_name}
           farmerFallbackName={harvest.farmer_name}
-          produceCost={produceCost}
-          hasTruck={!!assignedTruck}
+          amount={combinedAmount}
           onUploaded={load}
         />
 
@@ -549,73 +557,44 @@ function ContactCard({
   )
 }
 
-// Two real cash legs, shown separately: produce cost to the farmer,
-// transport cost to whichever truck's owner got assigned. The buyer pays
-// both directly -- FarmSync only holds a screenshot as proof of each.
+// One combined real-money payment -- produce cost plus transport cost,
+// both actual cash -- paid by the buyer to the farmer in a single
+// transfer. The farmer is responsible for separately settling the
+// transport share with the transporter, off-platform (see the note and
+// their contact card shown above this).
 function PaymentSection({
   transaction,
   isBuyer,
   farmerContact,
-  transporterContact,
   buyerName,
   farmerFallbackName,
-  produceCost,
-  hasTruck,
+  amount,
   onUploaded,
 }: {
   transaction: Transaction | null
   isBuyer: boolean
   farmerContact: ContactInfo | null
-  transporterContact: ContactInfo | null
   buyerName: string
   farmerFallbackName: string
-  produceCost: number
-  hasTruck: boolean
+  amount: number
   onUploaded: () => void
 }) {
   if (!transaction) return null
 
   return (
-    <div className="mt-4 space-y-3">
+    <div className="mt-4">
       <PaymentLegCard
         transactionId={transaction.id}
-        title="Produce payment"
-        amount={produceCost}
+        title="Payment"
+        amount={amount}
         payeeContact={farmerContact}
         payeeFallbackName={farmerFallbackName}
         isPayer={isBuyer}
         payerName={buyerName}
         paid={transaction.payment_status === 'paid'}
         screenshotPath={transaction.payment_screenshot_path}
-        statusColumn="payment_status"
-        screenshotColumn="payment_screenshot_path"
-        uploadedColumn="payment_uploaded_at"
         onUploaded={onUploaded}
       />
-      {hasTruck ? (
-        <PaymentLegCard
-          transactionId={transaction.id}
-          title="Transport payment"
-          amount={transaction.transport_cost}
-          payeeContact={transporterContact}
-          payeeFallbackName="the transporter"
-          isPayer={isBuyer}
-          payerName={buyerName}
-          paid={transaction.transport_payment_status === 'paid'}
-          screenshotPath={transaction.transport_payment_screenshot_path}
-          statusColumn="transport_payment_status"
-          screenshotColumn="transport_payment_screenshot_path"
-          uploadedColumn="transport_payment_uploaded_at"
-          onUploaded={onUploaded}
-        />
-      ) : (
-        <div className="rounded-xl border border-sand-200 bg-sand-100 p-4">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-sand-500">Transport payment</p>
-          <p className="mt-2 text-sm text-sand-500">
-            Waiting for a truck to be assigned before transport payment can be arranged.
-          </p>
-        </div>
-      )}
     </div>
   )
 }
@@ -630,9 +609,6 @@ function PaymentLegCard({
   payerName,
   paid,
   screenshotPath,
-  statusColumn,
-  screenshotColumn,
-  uploadedColumn,
   onUploaded,
 }: {
   transactionId: string
@@ -644,9 +620,6 @@ function PaymentLegCard({
   payerName: string
   paid: boolean
   screenshotPath: string | null
-  statusColumn: 'payment_status' | 'transport_payment_status'
-  screenshotColumn: 'payment_screenshot_path' | 'transport_payment_screenshot_path'
-  uploadedColumn: 'payment_uploaded_at' | 'transport_payment_uploaded_at'
   onUploaded: () => void
 }) {
   const [uploading, setUploading] = useState(false)
@@ -662,7 +635,7 @@ function PaymentLegCard({
     setUploading(true)
     setUploadError(null)
 
-    const path = `${transactionId}/${statusColumn}/${Date.now()}-${file.name}`
+    const path = `${transactionId}/${Date.now()}-${file.name}`
     const { error: uploadErr } = await supabase.storage.from('payment-screenshots').upload(path, file)
     if (uploadErr) {
       setUploading(false)
@@ -673,9 +646,9 @@ function PaymentLegCard({
     const { error: updateErr } = await supabase
       .from('transactions')
       .update({
-        [statusColumn]: 'paid',
-        [screenshotColumn]: path,
-        [uploadedColumn]: new Date().toISOString(),
+        payment_status: 'paid',
+        payment_screenshot_path: path,
+        payment_uploaded_at: new Date().toISOString(),
       })
       .eq('id', transactionId)
 

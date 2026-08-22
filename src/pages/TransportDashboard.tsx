@@ -358,12 +358,9 @@ function TruckRowItem({
             </button>
           </div>
           <div className="mt-2 flex items-center justify-between gap-2">
-            <span
-              className={`text-xs ${transaction.transport_payment_status === 'paid' ? 'text-brand-700' : 'text-amber-300'}`}
-            >
-              {transaction.transport_payment_status === 'paid'
-                ? `Transport payment received: ${inr(transaction.transport_cost)}`
-                : `Transport payment pending: ${inr(transaction.transport_cost)}`}
+            <span className="text-xs text-sand-500">
+              Your share: {inr(transaction.transport_cost)} — settled directly with{' '}
+              {harvest.farmer_name}, off-platform
             </span>
             <Link
               to={`/confirm?harvest=${harvest.id}&demand=${demand.id}`}
