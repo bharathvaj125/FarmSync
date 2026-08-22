@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Inbox, Check, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { inr, inrPerKg, kg } from '../lib/format'
@@ -57,6 +58,7 @@ function RequestRow({
   const { request, harvest, demand } = item
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const navigate = useNavigate()
 
   const counterpartName = viewerRole === 'farmer' ? demand.buyer_name : harvest.farmer_name
   const verb = viewerRole === 'farmer' ? 'wants to buy' : 'wants to sell you'
@@ -75,7 +77,11 @@ function RequestRow({
       onRespond()
       return
     }
-    onRespond()
+    // Accepting finalizes the transaction -- take the accepter straight to
+    // the confirmation page (delivery date + the other party's contact
+    // info) instead of leaving them back on the dashboard wondering if
+    // anything happened.
+    navigate(`/confirm?harvest=${harvest.id}&demand=${demand.id}`)
   }
 
   async function handleDecline() {

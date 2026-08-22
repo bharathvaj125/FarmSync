@@ -4,6 +4,7 @@ import { CheckCircle2, ArrowLeft, Phone, Mail, Clock, Check, X } from 'lucide-re
 import { supabase } from '../lib/supabase'
 import { generateCandidateDeals, daysUntilDelivery, type WeatherByZone } from '../lib/scoring'
 import { fetchWeatherForecast } from '../lib/weather'
+import { useLiveSync } from '../lib/useLiveSync'
 import { inr, inrPerKg, kg } from '../lib/format'
 import { useAuth, homeFor } from '../lib/AuthContext'
 import type { DealRequest, DemandRequest, HarvestOffer, TransportOption } from '../lib/types'
@@ -175,6 +176,11 @@ export default function ConfirmTransaction() {
     load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [harvestId, demandId])
+
+  // If the other party responds while this page is open -- e.g. sitting on
+  // "waiting for response" -- this picks it up live instead of requiring a
+  // manual refresh to see the deal flip to accepted (or notice a decline).
+  useLiveSync(['deal_requests'], load)
 
   async function handleSendRequest() {
     if (!harvest || !demand || !transport || !terms || !profile) return
