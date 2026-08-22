@@ -53,8 +53,13 @@ export function generateCandidateDeals(
     const quantity_kg = Math.min(harvest.quantity_kg, demand.quantity_kg, route.capacity_kg)
     if (quantity_kg <= 0) continue
 
-    const unit_price = demand.max_price
-    if (unit_price < harvest.minimum_price) continue // below farmer's floor
+    if (demand.max_price < harvest.minimum_price) continue // no overlap, no deal possible
+    // Deterministic stand-in for negotiation: split the difference between
+    // what the farmer will accept and what the buyer offered. Keeps price
+    // sensitive to BOTH sides, which is what makes the farmer-side "highest
+    // offer isn't the best deal" and the shop-side "cheapest ask isn't the
+    // lowest landed cost" comparisons both real instead of one-sided.
+    const unit_price = (harvest.minimum_price + demand.max_price) / 2
 
     const grossRevenue = quantity_kg * unit_price
 
@@ -80,6 +85,7 @@ export function generateCandidateDeals(
     const score = net_realization / quantity_kg // per-kg score, comparable across deal sizes
 
     const explanation = buildExplanation({
+      harvest,
       demand,
       unit_price,
       transport_cost,
@@ -109,6 +115,7 @@ export function generateCandidateDeals(
 }
 
 function buildExplanation(args: {
+  harvest: HarvestOffer
   demand: DemandRequest
   unit_price: number
   transport_cost: number
@@ -116,14 +123,15 @@ function buildExplanation(args: {
   risk_loss: number
   quantity_kg: number
 }): string {
-  const { demand, unit_price, transport_cost, spoilage_loss, risk_loss, quantity_kg } = args
+  const { harvest, demand, unit_price, transport_cost, spoilage_loss, risk_loss, quantity_kg } = args
   const transportPerKg = transport_cost / quantity_kg
   const spoilagePerKg = spoilage_loss / quantity_kg
   const riskPerKg = risk_loss / quantity_kg
   return (
-    `${demand.buyer_name} offers ₹${unit_price}/kg, but after ₹${transportPerKg.toFixed(2)}/kg transport, ` +
+    `${harvest.farmer_name} asks ₹${harvest.minimum_price}/kg, ${demand.buyer_name} offers up to ₹${demand.max_price}/kg, ` +
+    `negotiated at ₹${unit_price.toFixed(2)}/kg. After ₹${transportPerKg.toFixed(2)}/kg transport, ` +
     `₹${spoilagePerKg.toFixed(2)}/kg expected spoilage, and ₹${riskPerKg.toFixed(2)}/kg reliability risk, ` +
-    `the net realization is ₹${(unit_price - transportPerKg - spoilagePerKg - riskPerKg).toFixed(2)}/kg.`
+    `net realization is ₹${(unit_price - transportPerKg - spoilagePerKg - riskPerKg).toFixed(2)}/kg.`
   )
 }
 
@@ -177,6 +185,25 @@ function rescaleDeal(deal: CandidateDeal, quantity_kg: number): CandidateDeal {
     net_realization: deal.net_realization * ratio,
     landed_cost: deal.landed_cost * ratio,
   }
+}
+
+/**
+ * The mirror of generateCandidateDeals: starts from a buyer's demand and
+ * ranks every viable farmer/route combination by landed cost (cheapest
+ * first). Reuses the same cost math so the two sides of the platform never
+ * disagree about what a deal actually costs.
+ */
+export function rankSuppliersForDemand(
+  demand: DemandRequest,
+  harvests: HarvestOffer[],
+  transportOptions: TransportOption[],
+): CandidateDeal[] {
+  const candidates: CandidateDeal[] = []
+  for (const harvest of harvests) {
+    const dealsForThisHarvest = generateCandidateDeals(harvest, [demand], transportOptions)
+    candidates.push(...dealsForThisHarvest)
+  }
+  return candidates.sort((a, b) => a.landed_cost_per_kg - b.landed_cost_per_kg)
 }
 
 /** Simulates the allocation with one or more overridden inputs -- powers the What-If screen. */

@@ -52,8 +52,14 @@ create table transactions (
 -- Demo seed data: zones are abstract distances (km) via a lookup, not real geo,
 -- kept simple on purpose. Edit these numbers to match your rehearsed demo story.
 
+-- Three farmers with different asking prices and zones so the shop-side
+-- ranking has something real to compare: Suresh has the cheapest ask but
+-- is furthest away, which is what proves "cheapest quote is not the
+-- lowest landed cost" on the shop dashboard.
 insert into harvest_offers (farmer_name, crop, quantity_kg, harvest_days, zone, quality_grade, minimum_price) values
-('Ravi Kumar', 'Tomato', 2000, 5, 'Zone A', 'A', 18);
+('Ravi Kumar', 'Tomato', 2000, 5, 'Zone A', 'A', 18),
+('Lakshmi Devi', 'Tomato', 800, 4, 'Zone B', 'A', 20),
+('Suresh Naidu', 'Tomato', 1200, 6, 'Zone C', 'A', 16);
 
 insert into demand_requests (buyer_name, crop, quantity_kg, required_in_days, zone, max_price, quality_required) values
 ('Green Basket Store', 'Tomato', 500, 6, 'Zone A', 28, 'A'),   -- near, low price -> should win on net realization
@@ -71,4 +77,8 @@ insert into transport_options (label, origin_zone, destination_zone, capacity_kg
 ('Mini truck - within Zone A', 'Zone A', 'Zone A', 800, 300, 0.97),
 ('Pickup - Zone A to Zone B', 'Zone A', 'Zone B', 600, 900, 0.9),
 ('Truck - Zone A to Zone C', 'Zone A', 'Zone C', 1000, 5000, 0.6),
-('Truck - Zone A to Zone D', 'Zone A', 'Zone D', 1000, 7000, 0.5);
+('Truck - Zone A to Zone D', 'Zone A', 'Zone D', 1000, 7000, 0.5),
+('Mini truck - within Zone B', 'Zone B', 'Zone B', 700, 250, 0.95),
+('Pickup - Zone B to Zone A', 'Zone B', 'Zone A', 700, 1200, 0.88),
+('Mini truck - within Zone C', 'Zone C', 'Zone C', 1200, 300, 0.9),
+('Truck - Zone C to Zone A', 'Zone C', 'Zone A', 1200, 5400, 0.65);
