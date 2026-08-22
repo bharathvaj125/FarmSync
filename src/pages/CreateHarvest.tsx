@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { CloudRain, Thermometer, Users } from 'lucide-react'
+import { CloudRain, Thermometer, Users, Gauge } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/AuthContext'
 import { fetchWeatherForecast, type DailyWeather } from '../lib/weather'
+import { computeHarvestSuggestion, type HarvestSuggestion } from '../lib/harvestSuggestion'
 
 const ZONES = ['Hyderabad', 'Medchal', 'Zaheerabad', 'Warangal']
 
@@ -20,6 +21,72 @@ export default function CreateHarvest() {
   })
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Fetched once here so the suggestion score, the demand panel, and the
+  // weather panel all work from the exact same numbers -- no risk of
+  // the score disagreeing with what the panels above it are showing.
+  const [demandByZone, setDemandByZone] = useState<{ zone: string; quantity_kg: number }[]>([])
+  const [demandLoading, setDemandLoading] = useState(true)
+  const [forecast, setForecast] = useState<DailyWeather[]>([])
+  const [weatherLoading, setWeatherLoading] = useState(true)
+  const [weatherError, setWeatherError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let active = true
+    setDemandLoading(true)
+    supabase
+      .from('demand_requests')
+      .select('zone, quantity_kg')
+      .eq('crop', form.crop)
+      .then(({ data }) => {
+        if (!active) return
+        const totals = new Map<string, number>()
+        for (const row of (data as { zone: string; quantity_kg: number }[]) ?? []) {
+          totals.set(row.zone, (totals.get(row.zone) ?? 0) + row.quantity_kg)
+        }
+        setDemandByZone(Array.from(totals, ([zone, quantity_kg]) => ({ zone, quantity_kg })))
+        setDemandLoading(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [form.crop])
+
+  useEffect(() => {
+    let active = true
+    setWeatherLoading(true)
+    setWeatherError(null)
+    // 16 days -- Open-Meteo's max -- so the suggestion score can still
+    // look at the harvest's ready-date window even for a longer wait,
+    // not just the next 5 days shown in the visual strip.
+    fetchWeatherForecast(form.zone, 16)
+      .then((result) => {
+        if (active) {
+          setForecast(result)
+          setWeatherLoading(false)
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setWeatherError('Could not load weather right now.')
+          setWeatherLoading(false)
+        }
+      })
+    return () => {
+      active = false
+    }
+  }, [form.zone])
+
+  const totalDemand = demandByZone.reduce((sum, z) => sum + z.quantity_kg, 0)
+  const suggestion: HarvestSuggestion | null =
+    !demandLoading && !weatherLoading
+      ? computeHarvestSuggestion({
+          plannedQuantityKg: Number(form.quantity_kg) || 0,
+          harvestDays: Number(form.harvest_days) || 0,
+          totalNearbyDemandKg: totalDemand,
+          forecast,
+        })
+      : null
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -53,8 +120,9 @@ export default function CreateHarvest() {
       </p>
 
       <div className="mb-6 space-y-4">
-        <NearbyDemandPanel crop={form.crop} />
-        <WeatherPanel zone={form.zone} />
+        <SuggestionPanel suggestion={suggestion} quantityEntered={!!Number(form.quantity_kg)} />
+        <NearbyDemandPanel crop={form.crop} loading={demandLoading} byZone={demandByZone} total={totalDemand} />
+        <WeatherPanel zone={form.zone} loading={weatherLoading} error={weatherError} forecast={forecast} />
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4 rounded-2xl border border-sand-200 bg-sand-100 p-6">
@@ -151,34 +219,83 @@ export default function CreateHarvest() {
   )
 }
 
-/** Real query against demand_requests -- no waiting for logs, this data already exists. */
-function NearbyDemandPanel({ crop }: { crop: string }) {
-  const [byZone, setByZone] = useState<{ zone: string; quantity_kg: number }[]>([])
-  const [loading, setLoading] = useState(true)
+const LABEL_STYLE: Record<HarvestSuggestion['label'], { text: string; color: string; ring: string }> = {
+  strong: { text: 'Strong signal to proceed', color: 'text-brand-700', ring: 'stroke-brand-500' },
+  moderate: { text: 'Moderate — proceed with caution', color: 'text-amber-400', ring: 'stroke-amber-400' },
+  weak: { text: 'Weak — consider a smaller quantity', color: 'text-red-400', ring: 'stroke-red-400' },
+}
 
-  useEffect(() => {
-    let active = true
-    setLoading(true)
-    supabase
-      .from('demand_requests')
-      .select('zone, quantity_kg')
-      .eq('crop', crop)
-      .then(({ data }) => {
-        if (!active) return
-        const totals = new Map<string, number>()
-        for (const row of (data as { zone: string; quantity_kg: number }[]) ?? []) {
-          totals.set(row.zone, (totals.get(row.zone) ?? 0) + row.quantity_kg)
-        }
-        setByZone(Array.from(totals, ([zone, quantity_kg]) => ({ zone, quantity_kg })))
-        setLoading(false)
-      })
-    return () => {
-      active = false
-    }
-  }, [crop])
+function SuggestionPanel({
+  suggestion,
+  quantityEntered,
+}: {
+  suggestion: HarvestSuggestion | null
+  quantityEntered: boolean
+}) {
+  return (
+    <div className="rounded-xl border border-sand-300 bg-sand-100 p-4">
+      <div className="mb-2 flex items-center gap-2">
+        <Gauge size={14} className="text-sand-500" />
+        <h3 className="font-display text-xs font-semibold text-sand-900">Suggestion score</h3>
+      </div>
 
-  const total = byZone.reduce((sum, z) => sum + z.quantity_kg, 0)
+      {!quantityEntered || !suggestion ? (
+        <p className="text-xs text-sand-400">
+          Enter a quantity and "ready in days" below to see a suggestion, based on real current demand and
+          the real forecast for your zone.
+        </p>
+      ) : (
+        <>
+          <div className="flex items-baseline gap-3">
+            <span className={`tabular font-display text-3xl font-bold ${LABEL_STYLE[suggestion.label].color}`}>
+              {suggestion.score}%
+            </span>
+            <span className={`text-xs font-medium ${LABEL_STYLE[suggestion.label].color}`}>
+              {LABEL_STYLE[suggestion.label].text}
+            </span>
+          </div>
 
+          <div className="mt-3 space-y-1.5 text-[11px] text-sand-500">
+            <div className="flex items-center justify-between">
+              <span>
+                Demand coverage ({Math.round(suggestion.demandCoverageRatio * 100)}% of your planned
+                quantity has open buyers)
+              </span>
+              <span className="tabular font-medium text-sand-700">
+                {suggestion.demandScore}/{suggestion.weatherApplicable ? 60 : 100}
+              </span>
+            </div>
+            {suggestion.weatherApplicable ? (
+              <div className="flex items-center justify-between">
+                <span>Weather risk around your ready date (~{suggestion.avgRainMm}mm/day forecast)</span>
+                <span className="tabular font-medium text-sand-700">{suggestion.weatherScore}/40</span>
+              </div>
+            ) : (
+              <p>Weather too far out to forecast — score is demand-only.</p>
+            )}
+          </div>
+
+          <p className="mt-3 text-[11px] leading-relaxed text-sand-400">
+            A deterministic formula from real numbers — not a machine-learned prediction, since there's no
+            data yet linking anyone's actual yield to weather. You decide what to actually enter below.
+          </p>
+        </>
+      )}
+    </div>
+  )
+}
+
+function NearbyDemandPanel({
+  crop,
+  loading,
+  byZone,
+  total,
+}: {
+  crop: string
+  loading: boolean
+  byZone: { zone: string; quantity_kg: number }[]
+  total: number
+}) {
   return (
     <div className="rounded-xl border border-channel-200 bg-channel-50 p-4">
       <div className="mb-2 flex items-center gap-2">
@@ -209,33 +326,19 @@ function NearbyDemandPanel({ crop }: { crop: string }) {
   )
 }
 
-/** Real live forecast from Open-Meteo -- informational only, never turned into a yield number. */
-function WeatherPanel({ zone }: { zone: string }) {
-  const [days, setDays] = useState<DailyWeather[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    let active = true
-    setLoading(true)
-    setError(null)
-    fetchWeatherForecast(zone, 5)
-      .then((result) => {
-        if (active) {
-          setDays(result)
-          setLoading(false)
-        }
-      })
-      .catch(() => {
-        if (active) {
-          setError('Could not load weather right now.')
-          setLoading(false)
-        }
-      })
-    return () => {
-      active = false
-    }
-  }, [zone])
+/** Real live forecast from Open-Meteo -- informational strip; the score above is what uses it quantitatively. */
+function WeatherPanel({
+  zone,
+  loading,
+  error,
+  forecast,
+}: {
+  zone: string
+  loading: boolean
+  error: string | null
+  forecast: DailyWeather[]
+}) {
+  const visibleDays = forecast.slice(0, 5)
 
   return (
     <div className="rounded-xl border border-brand-200 bg-brand-50/60 p-4">
@@ -246,30 +349,24 @@ function WeatherPanel({ zone }: { zone: string }) {
       {loading && <p className="text-xs text-sand-400">Loading forecast…</p>}
       {error && <p className="text-xs text-red-400">{error}</p>}
       {!loading && !error && (
-        <>
-          <div className="flex gap-2 overflow-x-auto">
-            {days.map((d) => (
-              <div
-                key={d.date}
-                className="flex-none rounded-lg border border-sand-300 bg-sand-100 px-2.5 py-2 text-center"
-              >
-                <p className="text-[10px] text-sand-500">
-                  {new Date(`${d.date}T00:00:00`).toLocaleDateString('en-IN', { weekday: 'short' })}
-                </p>
-                <p className="tabular mt-1 flex items-center justify-center gap-1 text-xs font-medium text-channel-700">
-                  <Thermometer size={10} /> {Math.round(d.tempMaxC)}°
-                </p>
-                <p className="tabular mt-0.5 flex items-center justify-center gap-1 text-[11px] text-sand-500">
-                  <CloudRain size={10} /> {d.precipitationMm.toFixed(1)}mm
-                </p>
-              </div>
-            ))}
-          </div>
-          <p className="mt-2 text-[11px] leading-relaxed text-sand-400">
-            For your own planning — this isn't factored into any prediction, since there's no data yet
-            linking your actual yield to weather.
-          </p>
-        </>
+        <div className="flex gap-2 overflow-x-auto">
+          {visibleDays.map((d) => (
+            <div
+              key={d.date}
+              className="flex-none rounded-lg border border-sand-300 bg-sand-100 px-2.5 py-2 text-center"
+            >
+              <p className="text-[10px] text-sand-500">
+                {new Date(`${d.date}T00:00:00`).toLocaleDateString('en-IN', { weekday: 'short' })}
+              </p>
+              <p className="tabular mt-1 flex items-center justify-center gap-1 text-xs font-medium text-channel-700">
+                <Thermometer size={10} /> {Math.round(d.tempMaxC)}°
+              </p>
+              <p className="tabular mt-0.5 flex items-center justify-center gap-1 text-[11px] text-sand-500">
+                <CloudRain size={10} /> {d.precipitationMm.toFixed(1)}mm
+              </p>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   )
