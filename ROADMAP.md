@@ -1,9 +1,14 @@
 # FarmSync — Build Roadmap
 
-Status: scaffold deployed and proven end-to-end at
-https://farm-sync-pi.vercel.app. One page exists (`src/App.tsx`) — a
-farmer-side recommendation view reading live Supabase data through
-`src/lib/scoring.ts`.
+Status: **Tier 1 complete.** Live at https://farm-sync-pi.vercel.app —
+sidebar shell with Overview/Farmer/Shop routes, real design system (Sora +
+IBM Plex, brand/channel color scales), an Overview screen computing GMV,
+platform revenue, farmer uplift, and shop savings live from Supabase
+against a naive baseline, a what-if simulator (stepper + direct-entry
+controls, debounced recompute, stable card ordering), an allocation bar,
+and a mutual-profit card comparing the direct deal against each side's
+middleman-equivalent price. Now moving into Tier 2 (transport as a real
+role) and Tier 3 (transaction flow, revenue surfaced end-to-end).
 
 Priority order below is **tiered, not just sequential**: Tier 1 is the
 wow-factor core that has to be flawless — it's what makes FarmSync a
@@ -24,31 +29,25 @@ This is the entire pitch: highest price ≠ best deal, cheapest quote ≠
 lowest landed cost, and the recommendation changes live when you change a
 variable. If a judge only sees Tier 1, they should already be convinced.
 
-- [ ] **Phase 1 — Routing + shell.** Split `App.tsx` into
-      `src/pages/Landing.tsx` (role picker), `src/pages/FarmerDashboard.tsx`
-      (move current logic here), shared `src/components/Layout.tsx`. Install
-      `react-router-dom`.
-- [ ] **Phase 2 — Shop-side view.** Add `rankSuppliersForDemand()` to
-      `scoring.ts` (same cost math, entry point flipped to start from a
-      buyer's demand). `src/pages/ShopDashboard.tsx` shows ranked farmer
-      options with landed cost, and a banner proving the cheapest quote
-      isn't the cheapest landed cost — mirrors the farmer page.
-- [ ] **Phase 3 — What-if simulator.** `src/components/WhatIfPanel.tsx`:
-      sliders for buyer price delta, transport cost multiplier, harvest
-      quantity multiplier, extra delay days. `scoring.ts`'s `whatIf()`
-      already implements the math — this is pure UI. Visually flag when a
-      change flips the #1 ranked deal; that flip is the moment judges
-      remember.
-- [ ] **Phase 4 — Split allocation bar.** `src/components/AllocationBar.tsx`
-      — stacked horizontal bar, one segment per buyer, proportional to
-      `quantity_kg`, unallocated remainder shown greyed out.
-- [ ] **Phase 5 — Mutual profit engine screen.** Explicit farmer-gain vs
-      shop-savings comparison against a stated intermediary baseline price
-      (e.g. "farmer normally gets ₹30/kg from a middleman, shop normally
-      pays ₹36/kg — this direct deal nets farmer ₹X more and shop ₹Y less").
-      This was in the original doc as a "key feature," not a stretch goal —
-      promoted into Tier 1 because it's the clearest revenue/value story
-      for judges.
+- [x] **Phase 1 — Routing + shell.** Sidebar Layout with Overview/Farmer/
+      Shop/Transport(soon) nav, `react-router-dom`.
+- [x] **Phase 2 — Shop-side view.** `rankSuppliersForDemand()` in
+      `scoring.ts`; `ShopDashboard.tsx` shows ranked suppliers by landed
+      cost with a "cheapest quote ≠ lowest landed cost" banner.
+- [x] **Phase 3 — What-if simulator.** `WhatIfPanel.tsx` — buyer price,
+      transport cost, harvest quantity, and delay are all live-adjustable.
+      Shipped as sliders first, then converted to stepper + direct-entry
+      controls per feedback (sliders felt imprecise and janky); recompute
+      is debounced 200ms so dragging doesn't thrash the whole panel; deal
+      cards hold a fixed display order so the ranking change is
+      communicated via the BEST tag, not by cards physically reordering.
+- [x] **Phase 4 — Split allocation bar.** `AllocationBar.tsx` — stacked
+      bar with per-buyer color kept stable across what-if changes.
+- [x] **Phase 5 — Mutual profit engine screen.** `MutualProfitCard.tsx` —
+      shows farmer's and shop's middleman-equivalent price
+      (`minimum_price` / `max_price`, both real fields) against the direct
+      deal price, with each side's gain in ₹ total. Rendered under each
+      harvest's top recommendation.
 
 **Tier 1 exit check:** a stranger who's never seen the pitch can open the
 app, see why the top recommendation isn't the highest price, drag a
@@ -99,10 +98,12 @@ toy — this is what turns "innovative demo" into "revenue-generatable."
       "platform fee" line item shown on the confirmation screen (e.g. 2%
       transaction commission), computed and displayed, not just claimed
       verbally.
-- [ ] **Business metrics view** — a lightweight admin/summary screen
-      showing demo KPIs from the master doc: total farmer net-realization
-      gain, total shop savings, match rate, transport utilization. Labeled
-      clearly as demo data.
+- [x] **Business metrics view** — done ahead of schedule as the Overview
+      screen (`src/pages/Overview.tsx`): GMV, platform revenue at 2%,
+      farmer uplift vs. naive selling, shop savings vs. cheapest quote,
+      matched-kg / matched-demand counts, all computed live via
+      `computePlatformMetrics()`. Transport utilization stays open until
+      Tier 2 gives transport capacity something to be utilized against.
 - [ ] **Polish pass** — loading/empty states everywhere (reuse the
       `Centered` pattern from `App.tsx`), mobile-responsive check, one
       shared currency/number formatting helper instead of scattered

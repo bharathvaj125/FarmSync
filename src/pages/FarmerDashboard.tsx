@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { allocateHarvest, whatIf } from '../lib/scoring'
 import { inr, inrPerKg, kg } from '../lib/format'
 import AllocationBar from '../components/AllocationBar'
+import MutualProfitCard from '../components/MutualProfitCard'
 import WhatIfPanel, { DEFAULT_WHAT_IF, isWhatIfActive, type WhatIfState } from '../components/WhatIfPanel'
 import type { Allocation, DemandRequest, HarvestOffer, TransportOption } from '../lib/types'
 
@@ -198,6 +199,12 @@ function HarvestPanel({
           </div>
         ))}
       </div>
+
+      {bestDeal && (
+        <div className="mb-5">
+          <MutualProfitCard deal={bestDeal} />
+        </div>
+      )}
 
       <WhatIfPanel
         demands={demands}
