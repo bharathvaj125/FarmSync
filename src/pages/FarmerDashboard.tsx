@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { TrendingUp, AlertTriangle } from 'lucide-react'
 import { supabase } from '../lib/supabase'
-import { allocateHarvest, whatIf } from '../lib/scoring'
+import { allocateAllHarvests, allocateHarvest, availableResourcesFor, whatIf } from '../lib/scoring'
 import { inr, inrPerKg, kg } from '../lib/format'
 import AllocationBar from '../components/AllocationBar'
 import MutualProfitCard from '../components/MutualProfitCard'
@@ -53,8 +53,15 @@ export default function FarmerDashboard() {
         <h1 className="font-display text-2xl font-bold text-sand-900">Farmer dashboard</h1>
         <p className="mt-1 text-sm text-sand-500">Recommended buyers, ranked by expected net realization.</p>
       </div>
-      {harvests.map((harvest) => (
-        <HarvestPanel key={harvest.id} harvest={harvest} demands={demands} transport={transport} />
+      {harvests.map((harvest, i) => (
+        <HarvestPanel
+          key={harvest.id}
+          harvest={harvest}
+          harvestIndex={i}
+          harvests={harvests}
+          demands={demands}
+          transport={transport}
+        />
       ))}
     </main>
   )
@@ -62,13 +69,27 @@ export default function FarmerDashboard() {
 
 function HarvestPanel({
   harvest,
+  harvestIndex,
+  harvests,
   demands,
   transport,
 }: {
   harvest: HarvestOffer
+  harvestIndex: number
+  harvests: HarvestOffer[]
   demands: DemandRequest[]
   transport: TransportOption[]
 }) {
+  // Every harvest's allocation is computed against the SAME pool of demand
+  // and transport capacity as the platform's other farmers, with this
+  // harvest's own claim added back -- otherwise two different harvests
+  // could both show as fully satisfying the same buyer's order (see
+  // allocateAllHarvests in scoring.ts for why that was a real bug here).
+  const { demands: availableDemands, transportOptions: availableTransport } = useMemo(() => {
+    const baseAllocations = allocateAllHarvests(harvests, demands, transport)
+    return availableResourcesFor(harvestIndex, demands, transport, baseAllocations)
+  }, [harvestIndex, harvests, demands, transport])
+
   const [whatIfState, setWhatIfState] = useState<WhatIfState>(DEFAULT_WHAT_IF)
   const [allocation, setAllocation] = useState<Allocation | null>(null)
   const [baselineTopBuyerId, setBaselineTopBuyerId] = useState<string | null>(null)
@@ -76,11 +97,11 @@ function HarvestPanel({
 
   useEffect(() => {
     function recompute() {
-      const base = allocateHarvest(harvest, demands, transport)
+      const base = allocateHarvest(harvest, availableDemands, availableTransport)
       setBaselineTopBuyerId(base.deals[0]?.demandRequest.id ?? null)
 
       const active = isWhatIfActive(whatIfState)
-      setAllocation(active ? whatIf(harvest, demands, transport, whatIfState) : base)
+      setAllocation(active ? whatIf(harvest, availableDemands, availableTransport, whatIfState) : base)
     }
 
     // Compute immediately on first load so the page isn't blank, but
@@ -100,7 +121,7 @@ function HarvestPanel({
 
     const timer = setTimeout(recompute, 200)
     return () => clearTimeout(timer)
-  }, [harvest, demands, transport, whatIfState])
+  }, [harvest, availableDemands, availableTransport, whatIfState])
 
   if (!allocation) return null
 
@@ -118,7 +139,7 @@ function HarvestPanel({
   // change made cards swap position and change height mid-drag, which
   // reads as the page lurching -- the ranking is still communicated via
   // the BEST tag and the banners above, without the DOM reshuffling.
-  const demandOrder = new Map(demands.map((d, i) => [d.id, i]))
+  const demandOrder = new Map(availableDemands.map((d, i) => [d.id, i]))
   const displayDeals = [...allocation.deals].sort(
     (a, b) => (demandOrder.get(a.demandRequest.id) ?? 0) - (demandOrder.get(b.demandRequest.id) ?? 0),
   )
@@ -140,7 +161,7 @@ function HarvestPanel({
       </p>
 
       <div className="mb-5">
-        <AllocationBar allocation={allocation} demands={demands} />
+        <AllocationBar allocation={allocation} demands={availableDemands} />
       </div>
 
       {priceIsNotProfit && (
@@ -207,7 +228,7 @@ function HarvestPanel({
       )}
 
       <WhatIfPanel
-        demands={demands}
+        demands={availableDemands}
         baseQuantityKg={harvest.quantity_kg}
         value={whatIfState}
         onChange={setWhatIfState}

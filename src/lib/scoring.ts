@@ -151,6 +151,130 @@ export function allocateHarvest(
 }
 
 /**
+ * Allocates every harvest against a SHARED pool of demand and transport
+ * capacity, so two different farmers can't both get "matched" to the same
+ * buyer's full order or the same truck's full capacity. Calling
+ * allocateHarvest() independently per harvest (which each dashboard panel
+ * used to do) let every harvest see every demand and every route as fully
+ * available, so a buyer needing 500kg could show up fully allocated in
+ * three different farmers' recommendations at once -- 1500kg against a
+ * 500kg order.
+ *
+ * This builds every (harvest, demand, route) candidate across the WHOLE
+ * platform, ranks them all together by score, and fills the best ones
+ * first -- decrementing harvest supply, demand need, and transport
+ * capacity as it goes. An earlier version processed harvests one at a
+ * time in array order, which meant whichever harvest was inserted first
+ * could claim the entire market and leave every other farmer with zero
+ * buyers -- correct in that nothing was double-counted, but not a fair
+ * match. Ranking all candidates globally means a buyer's order goes to
+ * whichever farmer-route pairing is actually best for it, not to
+ * whoever's row happened to load first.
+ */
+export function allocateAllHarvests(
+  harvests: HarvestOffer[],
+  demands: DemandRequest[],
+  transportOptions: TransportOption[],
+): Allocation[] {
+  return globalGreedyMatch(harvests, demands, transportOptions, (a, b) => b.score - a.score)
+}
+
+/** Same shared resource pool, but ranks every candidate by headline price instead of net realization -- for the Overview uplift comparison. */
+export function allocateAllHarvestsNaive(
+  harvests: HarvestOffer[],
+  demands: DemandRequest[],
+  transportOptions: TransportOption[],
+): Allocation[] {
+  return globalGreedyMatch(harvests, demands, transportOptions, (a, b) => b.unit_price - a.unit_price)
+}
+
+function globalGreedyMatch(
+  harvests: HarvestOffer[],
+  demands: DemandRequest[],
+  transportOptions: TransportOption[],
+  comparator: (a: CandidateDeal, b: CandidateDeal) => number,
+): Allocation[] {
+  const allCandidates: CandidateDeal[] = []
+  for (const harvest of harvests) {
+    allCandidates.push(...generateCandidateDeals(harvest, demands, transportOptions))
+  }
+  allCandidates.sort(comparator)
+
+  const remainingHarvestKg = new Map(harvests.map((h) => [h.id, h.quantity_kg]))
+  const remainingDemandKg = new Map(demands.map((d) => [d.id, d.quantity_kg]))
+  const remainingTransportKg = new Map(transportOptions.map((t) => [t.id, t.capacity_kg]))
+  const dealsByHarvestId = new Map<string, CandidateDeal[]>()
+  const claimedPairs = new Set<string>()
+
+  for (const candidate of allCandidates) {
+    const pairKey = `${candidate.harvestOffer.id}:${candidate.demandRequest.id}`
+    if (claimedPairs.has(pairKey)) continue // one route per (farmer, buyer) pair, same as the single-harvest allocator
+
+    const availableKg = Math.min(
+      remainingHarvestKg.get(candidate.harvestOffer.id) ?? 0,
+      remainingDemandKg.get(candidate.demandRequest.id) ?? 0,
+      remainingTransportKg.get(candidate.transportOption.id) ?? 0,
+      candidate.quantity_kg,
+    )
+    if (availableKg <= 0) continue
+
+    const scaled = rescaleDeal(candidate, availableKg)
+    if (!dealsByHarvestId.has(candidate.harvestOffer.id)) dealsByHarvestId.set(candidate.harvestOffer.id, [])
+    dealsByHarvestId.get(candidate.harvestOffer.id)!.push(scaled)
+    claimedPairs.add(pairKey)
+
+    remainingHarvestKg.set(candidate.harvestOffer.id, (remainingHarvestKg.get(candidate.harvestOffer.id) ?? 0) - availableKg)
+    remainingDemandKg.set(candidate.demandRequest.id, (remainingDemandKg.get(candidate.demandRequest.id) ?? 0) - availableKg)
+    remainingTransportKg.set(
+      candidate.transportOption.id,
+      (remainingTransportKg.get(candidate.transportOption.id) ?? 0) - availableKg,
+    )
+  }
+
+  return harvests.map((harvest) => {
+    const deals = dealsByHarvestId.get(harvest.id) ?? []
+    const allocated_kg = deals.reduce((sum, d) => sum + d.quantity_kg, 0)
+    return {
+      harvestOffer: harvest,
+      deals,
+      allocated_kg,
+      unallocated_kg: harvest.quantity_kg - allocated_kg,
+    }
+  })
+}
+
+/**
+ * The demand/transport pool available to one specific harvest once every
+ * OTHER harvest's allocation (from allocateAllHarvests) has been deducted
+ * -- but with that harvest's own claim added back. Used so each dashboard
+ * panel and its what-if simulator compete over the same shared resources
+ * as the rest of the platform, instead of pretending nothing else exists.
+ */
+export function availableResourcesFor(
+  harvestIndex: number,
+  demands: DemandRequest[],
+  transportOptions: TransportOption[],
+  allAllocations: Allocation[],
+): { demands: DemandRequest[]; transportOptions: TransportOption[] } {
+  let availDemands = demands.map((d) => ({ ...d }))
+  let availTransport = transportOptions.map((t) => ({ ...t }))
+
+  allAllocations.forEach((allocation, i) => {
+    if (i === harvestIndex) return
+    for (const deal of allocation.deals) {
+      availDemands = availDemands.map((d) =>
+        d.id === deal.demandRequest.id ? { ...d, quantity_kg: d.quantity_kg - deal.quantity_kg } : d,
+      )
+      availTransport = availTransport.map((t) =>
+        t.id === deal.transportOption.id ? { ...t, capacity_kg: t.capacity_kg - deal.quantity_kg } : t,
+      )
+    }
+  })
+
+  return { demands: availDemands, transportOptions: availTransport }
+}
+
+/**
  * The "obvious" strategy a farmer would use without FarmSync: sell to
  * whoever quotes the highest headline price, ignoring transport/spoilage/
  * risk. Used only to compute the optimizer's proven uplift for the
@@ -248,39 +372,46 @@ export function computePlatformMetrics(
   demands: DemandRequest[],
   transportOptions: TransportOption[],
 ): PlatformMetrics {
-  let gmv = 0
-  let matchedHarvestKg = 0
-  let totalHarvestKg = 0
-  let farmerUpliftVsHighestPrice = 0
+  // Both use the SAME shared demand/transport pool (allocateAllHarvests),
+  // so a buyer's order or a truck's capacity is never claimed twice across
+  // different farmers -- see allocateAllHarvests for why that matters.
+  const optimizedAllocations = allocateAllHarvests(harvests, demands, transportOptions)
+  const naiveAllocations = allocateAllHarvestsNaive(harvests, demands, transportOptions)
 
-  for (const harvest of harvests) {
-    totalHarvestKg += harvest.quantity_kg
-    const optimized = allocateHarvest(harvest, demands, transportOptions)
-    const naive = allocateHarvestNaive(harvest, demands, transportOptions)
+  const totalHarvestKg = harvests.reduce((sum, h) => sum + h.quantity_kg, 0)
+  const matchedHarvestKg = optimizedAllocations.reduce((sum, a) => sum + a.allocated_kg, 0)
+  const gmv = optimizedAllocations.reduce(
+    (sum, a) => sum + a.deals.reduce((s, d) => s + d.landed_cost, 0),
+    0,
+  )
 
-    matchedHarvestKg += optimized.allocated_kg
-    gmv += optimized.deals.reduce((sum, d) => sum + d.landed_cost, 0)
+  const optimizedRealization = optimizedAllocations.reduce(
+    (sum, a) => sum + a.deals.reduce((s, d) => s + d.net_realization, 0),
+    0,
+  )
+  const naiveRealization = naiveAllocations.reduce(
+    (sum, a) => sum + a.deals.reduce((s, d) => s + d.net_realization, 0),
+    0,
+  )
+  const farmerUpliftVsHighestPrice = optimizedRealization - naiveRealization
 
-    const optimizedRealization = optimized.deals.reduce((sum, d) => sum + d.net_realization, 0)
-    const naiveRealization = naive.deals.reduce((sum, d) => sum + d.net_realization, 0)
-    farmerUpliftVsHighestPrice += optimizedRealization - naiveRealization
-  }
+  const confirmedDeals = optimizedAllocations.flatMap((a) => a.deals)
+  const matchedDemandCount = new Set(confirmedDeals.map((d) => d.demandRequest.id)).size
 
-  let matchedDemandCount = 0
+  // For each confirmed (non-overlapping) deal, compare its landed cost
+  // against what the cheapest-quote farmer would have cost for that same
+  // buyer and quantity -- a real per-deal comparison, not a second
+  // independent ranking pass that could double-claim the same harvest.
   let shopSavingsVsCheapestQuote = 0
-
-  for (const demand of demands) {
-    const ranked = rankSuppliersForDemand(demand, harvests, transportOptions)
-    if (ranked.length === 0) continue
-    matchedDemandCount += 1
-
-    const optimizedPick = ranked[0]
-    const cheapestQuotePick = [...ranked].sort(
+  for (const deal of confirmedDeals) {
+    const allOptions = rankSuppliersForDemand(deal.demandRequest, harvests, transportOptions)
+    const cheapestQuoteOption = [...allOptions].sort(
       (a, b) => a.harvestOffer.minimum_price - b.harvestOffer.minimum_price,
     )[0]
-    const savingsPerKg = cheapestQuotePick.landed_cost_per_kg - optimizedPick.landed_cost_per_kg
+    if (!cheapestQuoteOption) continue
+    const savingsPerKg = cheapestQuoteOption.landed_cost_per_kg - deal.landed_cost_per_kg
     if (savingsPerKg > 0) {
-      shopSavingsVsCheapestQuote += savingsPerKg * optimizedPick.quantity_kg
+      shopSavingsVsCheapestQuote += savingsPerKg * deal.quantity_kg
     }
   }
 
