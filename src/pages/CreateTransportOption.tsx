@@ -2,13 +2,14 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/AuthContext'
+import { ZONES } from '../lib/weather'
 
 export default function CreateTransportOption() {
   const navigate = useNavigate()
   const { profile } = useAuth()
   const [form, setForm] = useState({
-    origin_zone: 'Hyderabad',
-    destination_zone: 'Hyderabad',
+    origin_zone: profile?.home_zone ?? ZONES[0],
+    destination_zone: profile?.home_zone ?? ZONES[0],
     capacity_kg: '',
     cost: '',
     reliability_score: '0.9',
@@ -45,8 +46,6 @@ export default function CreateTransportOption() {
     navigate('/transport')
   }
 
-  const zones = ['Hyderabad', 'Medchal', 'Zaheerabad', 'Warangal']
-
   return (
     <main className="mx-auto max-w-lg px-8 py-10">
       <h1 className="font-display text-2xl font-bold text-sand-900">List a route</h1>
@@ -66,7 +65,7 @@ export default function CreateTransportOption() {
               onChange={(e) => setForm({ ...form, origin_zone: e.target.value })}
               className="w-full rounded-md border border-sand-300 px-3 py-2 text-sm"
             >
-              {zones.map((z) => (
+              {ZONES.map((z) => (
                 <option key={z} value={z}>
                   {z}
                 </option>
@@ -79,7 +78,7 @@ export default function CreateTransportOption() {
               onChange={(e) => setForm({ ...form, destination_zone: e.target.value })}
               className="w-full rounded-md border border-sand-300 px-3 py-2 text-sm"
             >
-              {zones.map((z) => (
+              {ZONES.map((z) => (
                 <option key={z} value={z}>
                   {z}
                 </option>

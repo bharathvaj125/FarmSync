@@ -43,6 +43,7 @@ export interface CandidateDeal {
   transport_cost: number
   spoilage_loss: number
   risk_loss: number
+  weather_risk_loss: number // route-weather cost, 0 when no forecast data was supplied
   net_realization: number // farmer side
   landed_cost: number // buyer side
   landed_cost_per_kg: number

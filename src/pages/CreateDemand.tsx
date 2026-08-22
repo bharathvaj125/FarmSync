@@ -4,6 +4,7 @@ import { Brain, TrendingUp, TrendingDown, Minus, Plus } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/AuthContext'
 import { forecastNextPeriod, type ForecastResult, type SalesRecord } from '../lib/forecasting'
+import { ZONES } from '../lib/weather'
 
 export default function CreateDemand() {
   const navigate = useNavigate()
@@ -12,7 +13,7 @@ export default function CreateDemand() {
     crop: 'Tomato',
     quantity_kg: '',
     required_in_days: '',
-    zone: 'Hyderabad',
+    zone: profile?.home_zone ?? ZONES[0],
     max_price: '',
     quality_required: 'A',
   })
@@ -42,8 +43,6 @@ export default function CreateDemand() {
     }
     navigate('/shop')
   }
-
-  const zones = ['Hyderabad', 'Medchal', 'Zaheerabad', 'Warangal']
 
   return (
     <main className="mx-auto max-w-lg px-8 py-10">
@@ -123,7 +122,7 @@ export default function CreateDemand() {
               onChange={(e) => setForm({ ...form, zone: e.target.value })}
               className="w-full rounded-md border border-sand-300 px-3 py-2 text-sm"
             >
-              {zones.map((z) => (
+              {ZONES.map((z) => (
                 <option key={z} value={z}>
                   {z}
                 </option>

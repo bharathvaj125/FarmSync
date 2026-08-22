@@ -1,53 +1,125 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Landmark, Plus, HandCoins } from 'lucide-react'
+import { Landmark, Plus, HandCoins, Radio } from 'lucide-react'
 import { supabase } from '../lib/supabase'
-import { findCollectiveBuyingOpportunities, rankSuppliersForDemand } from '../lib/scoring'
+import { findCollectiveBuyingOpportunities, rankSuppliersForDemand, type WeatherByZone } from '../lib/scoring'
+import { fetchWeatherForecast, ZONE_COORDINATES } from '../lib/weather'
+import { useLiveSync } from '../lib/useLiveSync'
 import { inr, inrPerKg, kg } from '../lib/format'
 import CollectiveBuyingPanel from '../components/CollectiveBuyingPanel'
 import { useAuth } from '../lib/AuthContext'
 import type { CandidateDeal, DemandRequest, HarvestOffer, TransportOption } from '../lib/types'
 
 export default function ShopDashboard() {
+  const { profile } = useAuth()
   const [demands, setDemands] = useState<DemandRequest[]>([])
   const [harvests, setHarvests] = useState<HarvestOffer[]>([])
   const [transport, setTransport] = useState<TransportOption[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // Fetched once per page load and cached for every demand panel below --
+  // only 4 zones exist, so one forecast call per zone covers every route.
+  const [weatherByZone, setWeatherByZone] = useState<WeatherByZone>({})
+  const [notification, setNotification] = useState<string | null>(null)
+
+  const demandsRef = useRef<DemandRequest[]>([])
+  useEffect(() => {
+    demandsRef.current = demands
+  }, [demands])
+
+  async function load() {
+    const [d, h, t] = await Promise.all([
+      supabase.from('demand_requests').select('*').order('created_at'),
+      supabase.from('harvest_offers').select('*').order('created_at'),
+      supabase.from('transport_options').select('*').order('created_at'),
+    ])
+    if (d.error || h.error || t.error) {
+      setError(d.error?.message ?? h.error?.message ?? t.error?.message ?? 'Unknown error')
+    } else {
+      setDemands(d.data as DemandRequest[])
+      setHarvests(h.data as HarvestOffer[])
+      setTransport(t.data as TransportOption[])
+    }
+    setLoading(false)
+  }
 
   useEffect(() => {
-    async function load() {
-      const [d, h, t] = await Promise.all([
-        supabase.from('demand_requests').select('*').order('created_at'),
-        supabase.from('harvest_offers').select('*').order('created_at'),
-        supabase.from('transport_options').select('*').order('created_at'),
-      ])
-      if (d.error || h.error || t.error) {
-        setError(d.error?.message ?? h.error?.message ?? t.error?.message ?? 'Unknown error')
-      } else {
-        setDemands(d.data as DemandRequest[])
-        setHarvests(h.data as HarvestOffer[])
-        setTransport(t.data as TransportOption[])
-      }
-      setLoading(false)
-    }
     load()
+
+    const zones = Object.keys(ZONE_COORDINATES)
+    Promise.all(zones.map((zone) => fetchWeatherForecast(zone, 16)))
+      .then((forecasts) => {
+        const byZone: WeatherByZone = {}
+        zones.forEach((zone, i) => {
+          byZone[zone] = forecasts[i]
+        })
+        setWeatherByZone(byZone)
+      })
+      .catch(() => {
+        // Weather is a risk-scoring input, not a required one -- a failed
+        // fetch just leaves every deal at weather_risk_loss = 0.
+      })
   }, [])
+
+  // Any confirmed deal anywhere on the platform changes remaining
+  // quantities, so this re-fetches all three live -- no manual refresh
+  // needed to see that a farmer's produce or a truck's capacity moved.
+  useLiveSync(['harvest_offers', 'demand_requests', 'transport_options'], load)
+
+  useEffect(() => {
+    const channel = supabase
+      .channel('shop-transaction-notify')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'transactions' },
+        (payload) => {
+          const row = payload.new as { demand_request_id: string; quantity_kg: number }
+          const demand = demandsRef.current.find(
+            (d) => d.id === row.demand_request_id && d.owner_id === profile?.id,
+          )
+          if (demand) {
+            setNotification(`A farmer just confirmed a deal for ${kg(row.quantity_kg)} of ${demand.crop} you need.`)
+          }
+        },
+      )
+      .subscribe()
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [profile?.id])
+
+  useEffect(() => {
+    if (!notification) return
+    const timer = setTimeout(() => setNotification(null), 8000)
+    return () => clearTimeout(timer)
+  }, [notification])
 
   if (loading) return <Centered>Loading FarmSync…</Centered>
   if (error) return <Centered>Failed to load: {error}</Centered>
 
-  return <ShopDashboardBody demands={demands} harvests={harvests} transport={transport} />
+  return (
+    <ShopDashboardBody
+      demands={demands}
+      harvests={harvests}
+      transport={transport}
+      weatherByZone={weatherByZone}
+      notification={notification}
+    />
+  )
 }
 
 function ShopDashboardBody({
   demands,
   harvests,
   transport,
+  weatherByZone,
+  notification,
 }: {
   demands: DemandRequest[]
   harvests: HarvestOffer[]
   transport: TransportOption[]
+  weatherByZone: WeatherByZone
+  notification: string | null
 }) {
   const { profile } = useAuth()
 
@@ -80,6 +152,12 @@ function ShopDashboardBody({
 
   return (
     <main className="mx-auto max-w-3xl space-y-8 px-8 py-10">
+      {notification && (
+        <div className="flex items-center gap-2.5 rounded-lg border border-channel-200 bg-channel-50 px-4 py-3 text-sm text-channel-800">
+          <Radio size={16} className="flex-none animate-pulse text-channel-600" />
+          {notification}
+        </div>
+      )}
       <div className="flex items-start justify-between">
         <div>
           <h1 className="font-display text-2xl font-bold text-sand-900">
@@ -98,7 +176,13 @@ function ShopDashboardBody({
       </div>
       <CollectiveBuyingPanel opportunities={opportunities} />
       {myDemands.map((demand) => (
-        <DemandPanel key={demand.id} demand={demand} harvests={harvests} transport={transport} />
+        <DemandPanel
+          key={demand.id}
+          demand={demand}
+          harvests={harvests}
+          transport={transport}
+          weatherByZone={weatherByZone}
+        />
       ))}
     </main>
   )
@@ -108,16 +192,18 @@ function DemandPanel({
   demand,
   harvests,
   transport,
+  weatherByZone,
 }: {
   demand: DemandRequest
   harvests: HarvestOffer[]
   transport: TransportOption[]
+  weatherByZone: WeatherByZone
 }) {
   const [suppliers, setSuppliers] = useState<CandidateDeal[] | null>(null)
 
   useEffect(() => {
-    setSuppliers(rankSuppliersForDemand(demand, harvests, transport))
-  }, [demand, harvests, transport])
+    setSuppliers(rankSuppliersForDemand(demand, harvests, transport, weatherByZone))
+  }, [demand, harvests, transport, weatherByZone])
 
   if (!suppliers) return null
   if (suppliers.length === 0) {

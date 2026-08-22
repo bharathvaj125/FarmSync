@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { TrendingUp, AlertTriangle, Plus, HandCoins } from 'lucide-react'
+import { TrendingUp, AlertTriangle, Plus, HandCoins, Radio } from 'lucide-react'
 import { supabase } from '../lib/supabase'
-import { allocateAllHarvests, allocateHarvest, availableResourcesFor, whatIf } from '../lib/scoring'
+import { allocateAllHarvests, allocateHarvest, availableResourcesFor, whatIf, type WeatherByZone } from '../lib/scoring'
+import { fetchWeatherForecast, ZONE_COORDINATES } from '../lib/weather'
+import { useLiveSync } from '../lib/useLiveSync'
 import { inr, inrPerKg, kg } from '../lib/format'
 import AllocationBar from '../components/AllocationBar'
 import MutualProfitCard from '../components/MutualProfitCard'
@@ -17,25 +19,89 @@ export default function FarmerDashboard() {
   const [transport, setTransport] = useState<TransportOption[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // Fetched once per page load and cached for every harvest panel below,
+  // instead of once per deal -- there are only 4 zones, so one forecast
+  // call per zone covers every possible route on the platform.
+  const [weatherByZone, setWeatherByZone] = useState<WeatherByZone>({})
+  const [notification, setNotification] = useState<string | null>(null)
+
+  // Kept in sync with `harvests` so the realtime handler below always sees
+  // the current list of "my" harvest ids, without re-subscribing every
+  // time the data reloads.
+  const harvestsRef = useRef<HarvestOffer[]>([])
+  useEffect(() => {
+    harvestsRef.current = harvests
+  }, [harvests])
+
+  async function load() {
+    const [h, d, t] = await Promise.all([
+      supabase.from('harvest_offers').select('*').order('created_at'),
+      supabase.from('demand_requests').select('*').order('created_at'),
+      supabase.from('transport_options').select('*').order('created_at'),
+    ])
+    if (h.error || d.error || t.error) {
+      setError(h.error?.message ?? d.error?.message ?? t.error?.message ?? 'Unknown error')
+    } else {
+      setHarvests(h.data as HarvestOffer[])
+      setDemands(d.data as DemandRequest[])
+      setTransport(t.data as TransportOption[])
+    }
+    setLoading(false)
+  }
 
   useEffect(() => {
-    async function load() {
-      const [h, d, t] = await Promise.all([
-        supabase.from('harvest_offers').select('*').order('created_at'),
-        supabase.from('demand_requests').select('*').order('created_at'),
-        supabase.from('transport_options').select('*').order('created_at'),
-      ])
-      if (h.error || d.error || t.error) {
-        setError(h.error?.message ?? d.error?.message ?? t.error?.message ?? 'Unknown error')
-      } else {
-        setHarvests(h.data as HarvestOffer[])
-        setDemands(d.data as DemandRequest[])
-        setTransport(t.data as TransportOption[])
-      }
-      setLoading(false)
-    }
     load()
+
+    const zones = Object.keys(ZONE_COORDINATES)
+    Promise.all(zones.map((zone) => fetchWeatherForecast(zone, 16)))
+      .then((forecasts) => {
+        const byZone: WeatherByZone = {}
+        zones.forEach((zone, i) => {
+          byZone[zone] = forecasts[i]
+        })
+        setWeatherByZone(byZone)
+      })
+      .catch(() => {
+        // Weather is a risk-scoring input, not a required one -- if the API
+        // call fails, every deal just falls back to weather_risk_loss = 0
+        // (the same as before this feature existed), not a broken page.
+      })
   }, [])
+
+  // Any confirmed deal anywhere on the platform changes harvest/demand/
+  // transport remaining quantities, so this re-fetches all three live --
+  // no manual refresh needed to see that a buyer just bought your produce.
+  useLiveSync(['harvest_offers', 'demand_requests', 'transport_options'], load)
+
+  // Separate subscription just for the "you got matched" banner -- only
+  // fires when the new transaction actually belongs to one of my harvests.
+  useEffect(() => {
+    const channel = supabase
+      .channel('farmer-transaction-notify')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'transactions' },
+        (payload) => {
+          const row = payload.new as { harvest_offer_id: string; quantity_kg: number }
+          const harvest = harvestsRef.current.find(
+            (h) => h.id === row.harvest_offer_id && h.owner_id === profile?.id,
+          )
+          if (harvest) {
+            setNotification(`A buyer just confirmed a deal for ${kg(row.quantity_kg)} of your ${harvest.crop}.`)
+          }
+        },
+      )
+      .subscribe()
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [profile?.id])
+
+  useEffect(() => {
+    if (!notification) return
+    const timer = setTimeout(() => setNotification(null), 8000)
+    return () => clearTimeout(timer)
+  }, [notification])
 
   if (loading) return <Centered>Loading FarmSync…</Centered>
   if (error) {
@@ -68,6 +134,12 @@ export default function FarmerDashboard() {
 
   return (
     <main className="mx-auto max-w-3xl space-y-8 px-8 py-10">
+      {notification && (
+        <div className="flex items-center gap-2.5 rounded-lg border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-800">
+          <Radio size={16} className="flex-none animate-pulse text-brand-600" />
+          {notification}
+        </div>
+      )}
       <div className="flex items-start justify-between">
         <div>
           <h1 className="font-display text-2xl font-bold text-sand-900">
@@ -90,6 +162,7 @@ export default function FarmerDashboard() {
           harvests={harvests}
           demands={demands}
           transport={transport}
+          weatherByZone={weatherByZone}
         />
       ))}
     </main>
@@ -102,12 +175,14 @@ function HarvestPanel({
   harvests,
   demands,
   transport,
+  weatherByZone,
 }: {
   harvest: HarvestOffer
   harvestIndex: number
   harvests: HarvestOffer[]
   demands: DemandRequest[]
   transport: TransportOption[]
+  weatherByZone: WeatherByZone
 }) {
   // Every harvest's allocation is computed against the SAME pool of demand
   // and transport capacity as the platform's other farmers, with this
@@ -115,9 +190,9 @@ function HarvestPanel({
   // could both show as fully satisfying the same buyer's order (see
   // allocateAllHarvests in scoring.ts for why that was a real bug here).
   const { demands: availableDemands, transportOptions: availableTransport } = useMemo(() => {
-    const baseAllocations = allocateAllHarvests(harvests, demands, transport)
+    const baseAllocations = allocateAllHarvests(harvests, demands, transport, weatherByZone)
     return availableResourcesFor(harvestIndex, demands, transport, baseAllocations)
-  }, [harvestIndex, harvests, demands, transport])
+  }, [harvestIndex, harvests, demands, transport, weatherByZone])
 
   const [whatIfState, setWhatIfState] = useState<WhatIfState>(DEFAULT_WHAT_IF)
   const [allocation, setAllocation] = useState<Allocation | null>(null)
@@ -126,11 +201,13 @@ function HarvestPanel({
 
   useEffect(() => {
     function recompute() {
-      const base = allocateHarvest(harvest, availableDemands, availableTransport)
+      const base = allocateHarvest(harvest, availableDemands, availableTransport, weatherByZone)
       setBaselineTopBuyerId(base.deals[0]?.demandRequest.id ?? null)
 
       const active = isWhatIfActive(whatIfState)
-      setAllocation(active ? whatIf(harvest, availableDemands, availableTransport, whatIfState) : base)
+      setAllocation(
+        active ? whatIf(harvest, availableDemands, availableTransport, whatIfState, weatherByZone) : base,
+      )
     }
 
     // Compute immediately on first load so the page isn't blank, but
@@ -150,7 +227,7 @@ function HarvestPanel({
 
     const timer = setTimeout(recompute, 200)
     return () => clearTimeout(timer)
-  }, [harvest, availableDemands, availableTransport, whatIfState])
+  }, [harvest, availableDemands, availableTransport, whatIfState, weatherByZone])
 
   if (!allocation) return null
 

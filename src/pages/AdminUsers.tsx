@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { UserPlus, Trash2, Sprout, Store, Truck, Shield } from 'lucide-react'
-import { supabase, signupClient } from '../lib/supabase'
+import { supabase } from '../lib/supabase'
 import { useAuth, ROLE_LABEL, type Profile, type Role } from '../lib/AuthContext'
+import { ZONES } from '../lib/weather'
 
 const ROLE_ICON: Record<Role, typeof Sprout> = {
   farmer: Sprout,
@@ -74,7 +75,11 @@ export default function AdminUsers() {
                         </span>
                       )}
                     </p>
-                    <p className="truncate text-xs text-sand-500">{person.email}</p>
+                    <p className="truncate text-xs text-sand-500">
+                      {person.email}
+                      {person.phone_number && ` · ${person.phone_number}`}
+                      {person.home_zone && ` · ${person.home_zone}`}
+                    </p>
                   </div>
                   {person.id !== me?.id && <RemoveButton person={person} onRemoved={load} />}
                 </li>
@@ -126,6 +131,8 @@ function NewUserForm({ onCreated }: { onCreated: () => void }) {
     display_name: '',
     email: '',
     password: '',
+    phone_number: '',
+    home_zone: ZONES[0],
     role: 'farmer' as Role,
   })
   const [submitting, setSubmitting] = useState(false)
@@ -138,20 +145,28 @@ function NewUserForm({ onCreated }: { onCreated: () => void }) {
     setError(null)
     setDone(null)
 
-    const { error: signUpError } = await signupClient.auth.signUp({
-      email: form.email,
-      password: form.password,
-      options: { data: { role: form.role, display_name: form.display_name } },
+    // Creates the account directly via a database function instead of
+    // Supabase's signUp() API -- that path needs to send a confirmation
+    // email and was hitting the free-tier email rate limit. This RPC
+    // inserts the account with the email pre-confirmed, so it never
+    // depends on email sending at all.
+    const { error: rpcError } = await supabase.rpc('create_demo_user', {
+      p_email: form.email,
+      p_password: form.password,
+      p_role: form.role,
+      p_display_name: form.display_name,
+      p_phone_number: form.phone_number || null,
+      p_home_zone: form.home_zone,
     })
 
     setSubmitting(false)
-    if (signUpError) {
-      setError(signUpError.message)
+    if (rpcError) {
+      setError(rpcError.message)
       return
     }
 
     setDone(`${form.display_name || form.email} added as ${ROLE_LABEL[form.role]}.`)
-    setForm({ display_name: '', email: '', password: '', role: 'farmer' })
+    setForm({ display_name: '', email: '', password: '', phone_number: '', home_zone: ZONES[0], role: 'farmer' })
     onCreated()
   }
 
@@ -198,6 +213,20 @@ function NewUserForm({ onCreated }: { onCreated: () => void }) {
         </Field>
       </div>
 
+      <Field label="Region">
+        <select
+          value={form.home_zone}
+          onChange={(e) => setForm({ ...form, home_zone: e.target.value })}
+          className="w-full rounded-md border border-sand-300 px-3 py-2 text-sm"
+        >
+          {ZONES.map((z) => (
+            <option key={z} value={z}>
+              {z}
+            </option>
+          ))}
+        </select>
+      </Field>
+
       <Field label="Email">
         <input
           required
@@ -206,6 +235,16 @@ function NewUserForm({ onCreated }: { onCreated: () => void }) {
           onChange={(e) => setForm({ ...form, email: e.target.value })}
           className="w-full rounded-md border border-sand-300 px-3 py-2 text-sm"
           placeholder="name@example.com"
+        />
+      </Field>
+
+      <Field label="Phone number (optional, shared with matched deals)">
+        <input
+          type="tel"
+          value={form.phone_number}
+          onChange={(e) => setForm({ ...form, phone_number: e.target.value })}
+          className="w-full rounded-md border border-sand-300 px-3 py-2 text-sm"
+          placeholder="+91 98765 43210"
         />
       </Field>
 

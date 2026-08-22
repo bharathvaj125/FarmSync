@@ -1,11 +1,12 @@
 import type { Allocation, CandidateDeal, DemandRequest, HarvestOffer, TransportOption } from './types'
+import type { DailyWeather } from './weather'
 
 /**
  * Tunable constants for the scoring formula. Pin these before the hackathon
  * starts (per the runsheet) so nobody is debating them mid-build.
  *
  * Expected Net Realization = Gross Revenue - Transport Cost - Spoilage Loss
- *                             - Payment/Reliability Risk Loss
+ *                             - Payment/Reliability Risk Loss - Weather Risk Loss
  */
 export const SCORING_CONFIG = {
   // % of trade value lost per day of delay before delivery (perishability)
@@ -14,11 +15,41 @@ export const SCORING_CONFIG = {
   qualityMismatchPenalty: 0.05,
   // % of trade value at risk, scaled by (1 - transport reliability_score)
   riskWeight: 0.15,
+  // % of trade value at risk per mm of forecasted rain on the delivery day, at either end of the route
+  weatherRiskPerMm: 0.002,
 }
 
 const QUALITY_RANK: Record<string, number> = { C: 1, B: 2, A: 3 }
 
-function daysUntilDelivery(harvest: HarvestOffer, demand: DemandRequest): number {
+/** Per-zone daily forecasts, indexed the same way fetchWeatherForecast returns them (index 0 = today). */
+export type WeatherByZone = Record<string, DailyWeather[]>
+
+/**
+ * Route-weather risk, as a fraction of trade value. Looks at forecasted
+ * rain on the expected delivery day at BOTH the harvest's origin zone and
+ * the demand's destination zone (heavy rain slows trucks and damages
+ * produce at either end) and averages whichever of the two is actually
+ * available. Returns 0 -- not a guess -- when no forecast was supplied for
+ * either zone or the delivery day falls outside the fetched window, so
+ * every caller that doesn't pass weatherByZone behaves exactly as before
+ * this feature existed.
+ */
+function estimateWeatherRiskRate(
+  harvest: HarvestOffer,
+  demand: DemandRequest,
+  delayDays: number,
+  weatherByZone: WeatherByZone,
+): number {
+  const rainOnDay = (zone: string) => weatherByZone[zone]?.[delayDays]?.precipitationMm
+  const samples = [rainOnDay(harvest.zone), rainOnDay(demand.zone)].filter(
+    (v): v is number => typeof v === 'number',
+  )
+  if (samples.length === 0) return 0
+  const avgRainMm = samples.reduce((a, b) => a + b, 0) / samples.length
+  return avgRainMm * SCORING_CONFIG.weatherRiskPerMm
+}
+
+export function daysUntilDelivery(harvest: HarvestOffer, demand: DemandRequest): number {
   return Math.max(harvest.harvest_days, 0) + 1 // +1 day assumed for handoff/transit start
     <= demand.required_in_days
     ? Math.max(harvest.harvest_days, 0)
@@ -35,6 +66,7 @@ export function generateCandidateDeals(
   harvest: HarvestOffer,
   demands: DemandRequest[],
   transportOptions: TransportOption[],
+  weatherByZone: WeatherByZone = {},
 ): CandidateDeal[] {
   const candidates: CandidateDeal[] = []
 
@@ -78,8 +110,11 @@ export function generateCandidateDeals(
 
     const risk_loss = grossRevenue * SCORING_CONFIG.riskWeight * (1 - route.reliability_score)
 
-    const net_realization = grossRevenue - transport_cost - spoilage_loss - risk_loss
-    const landed_cost = grossRevenue + transport_cost + spoilage_loss + risk_loss
+    const weatherRiskRate = estimateWeatherRiskRate(harvest, demand, delayDays, weatherByZone)
+    const weather_risk_loss = grossRevenue * weatherRiskRate
+
+    const net_realization = grossRevenue - transport_cost - spoilage_loss - risk_loss - weather_risk_loss
+    const landed_cost = grossRevenue + transport_cost + spoilage_loss + risk_loss + weather_risk_loss
     const landed_cost_per_kg = landed_cost / quantity_kg
 
     const score = net_realization / quantity_kg // per-kg score, comparable across deal sizes
@@ -91,6 +126,7 @@ export function generateCandidateDeals(
       transport_cost,
       spoilage_loss,
       risk_loss,
+      weather_risk_loss,
       quantity_kg,
     })
 
@@ -103,6 +139,7 @@ export function generateCandidateDeals(
       transport_cost,
       spoilage_loss,
       risk_loss,
+      weather_risk_loss,
       net_realization,
       landed_cost,
       landed_cost_per_kg,
@@ -121,17 +158,20 @@ function buildExplanation(args: {
   transport_cost: number
   spoilage_loss: number
   risk_loss: number
+  weather_risk_loss: number
   quantity_kg: number
 }): string {
-  const { harvest, demand, unit_price, transport_cost, spoilage_loss, risk_loss, quantity_kg } = args
+  const { harvest, demand, unit_price, transport_cost, spoilage_loss, risk_loss, weather_risk_loss, quantity_kg } = args
   const transportPerKg = transport_cost / quantity_kg
   const spoilagePerKg = spoilage_loss / quantity_kg
   const riskPerKg = risk_loss / quantity_kg
+  const weatherPerKg = weather_risk_loss / quantity_kg
+  const weatherClause = weatherPerKg > 0 ? `, and ₹${weatherPerKg.toFixed(2)}/kg forecasted route-weather risk` : ''
   return (
     `${harvest.farmer_name} asks ₹${harvest.minimum_price}/kg, ${demand.buyer_name} offers up to ₹${demand.max_price}/kg, ` +
     `negotiated at ₹${unit_price.toFixed(2)}/kg. After ₹${transportPerKg.toFixed(2)}/kg transport, ` +
-    `₹${spoilagePerKg.toFixed(2)}/kg expected spoilage, and ₹${riskPerKg.toFixed(2)}/kg reliability risk, ` +
-    `net realization is ₹${(unit_price - transportPerKg - spoilagePerKg - riskPerKg).toFixed(2)}/kg.`
+    `₹${spoilagePerKg.toFixed(2)}/kg expected spoilage, ₹${riskPerKg.toFixed(2)}/kg reliability risk${weatherClause}, ` +
+    `net realization is ₹${(unit_price - transportPerKg - spoilagePerKg - riskPerKg - weatherPerKg).toFixed(2)}/kg.`
   )
 }
 
@@ -145,8 +185,9 @@ export function allocateHarvest(
   harvest: HarvestOffer,
   demands: DemandRequest[],
   transportOptions: TransportOption[],
+  weatherByZone: WeatherByZone = {},
 ): Allocation {
-  const candidates = generateCandidateDeals(harvest, demands, transportOptions)
+  const candidates = generateCandidateDeals(harvest, demands, transportOptions, weatherByZone)
   return greedyFill(harvest, candidates)
 }
 
@@ -175,8 +216,9 @@ export function allocateAllHarvests(
   harvests: HarvestOffer[],
   demands: DemandRequest[],
   transportOptions: TransportOption[],
+  weatherByZone: WeatherByZone = {},
 ): Allocation[] {
-  return globalGreedyMatch(harvests, demands, transportOptions, (a, b) => b.score - a.score)
+  return globalGreedyMatch(harvests, demands, transportOptions, (a, b) => b.score - a.score, weatherByZone)
 }
 
 /** Same shared resource pool, but ranks every candidate by headline price instead of net realization -- for the Overview uplift comparison. */
@@ -184,8 +226,9 @@ export function allocateAllHarvestsNaive(
   harvests: HarvestOffer[],
   demands: DemandRequest[],
   transportOptions: TransportOption[],
+  weatherByZone: WeatherByZone = {},
 ): Allocation[] {
-  return globalGreedyMatch(harvests, demands, transportOptions, (a, b) => b.unit_price - a.unit_price)
+  return globalGreedyMatch(harvests, demands, transportOptions, (a, b) => b.unit_price - a.unit_price, weatherByZone)
 }
 
 function globalGreedyMatch(
@@ -193,10 +236,11 @@ function globalGreedyMatch(
   demands: DemandRequest[],
   transportOptions: TransportOption[],
   comparator: (a: CandidateDeal, b: CandidateDeal) => number,
+  weatherByZone: WeatherByZone = {},
 ): Allocation[] {
   const allCandidates: CandidateDeal[] = []
   for (const harvest of harvests) {
-    allCandidates.push(...generateCandidateDeals(harvest, demands, transportOptions))
+    allCandidates.push(...generateCandidateDeals(harvest, demands, transportOptions, weatherByZone))
   }
   allCandidates.sort(comparator)
 
@@ -284,8 +328,9 @@ export function allocateHarvestNaive(
   harvest: HarvestOffer,
   demands: DemandRequest[],
   transportOptions: TransportOption[],
+  weatherByZone: WeatherByZone = {},
 ): Allocation {
-  const candidates = generateCandidateDeals(harvest, demands, transportOptions).sort(
+  const candidates = generateCandidateDeals(harvest, demands, transportOptions, weatherByZone).sort(
     (a, b) => b.unit_price - a.unit_price,
   )
   return greedyFill(harvest, candidates)
@@ -326,6 +371,7 @@ function rescaleDeal(deal: CandidateDeal, quantity_kg: number): CandidateDeal {
     transport_cost: deal.transport_cost * ratio,
     spoilage_loss: deal.spoilage_loss * ratio,
     risk_loss: deal.risk_loss * ratio,
+    weather_risk_loss: deal.weather_risk_loss * ratio,
     net_realization: deal.net_realization * ratio,
     landed_cost: deal.landed_cost * ratio,
   }
@@ -341,10 +387,11 @@ export function rankSuppliersForDemand(
   demand: DemandRequest,
   harvests: HarvestOffer[],
   transportOptions: TransportOption[],
+  weatherByZone: WeatherByZone = {},
 ): CandidateDeal[] {
   const candidates: CandidateDeal[] = []
   for (const harvest of harvests) {
-    const dealsForThisHarvest = generateCandidateDeals(harvest, [demand], transportOptions)
+    const dealsForThisHarvest = generateCandidateDeals(harvest, [demand], transportOptions, weatherByZone)
     candidates.push(...dealsForThisHarvest)
   }
   return candidates.sort((a, b) => a.landed_cost_per_kg - b.landed_cost_per_kg)
@@ -527,6 +574,7 @@ export function whatIf(
     harvestQuantityMultiplier?: number
     extraDelayDays?: number
   },
+  weatherByZone: WeatherByZone = {},
 ): Allocation {
   const adjustedHarvest: HarvestOffer = {
     ...harvest,
@@ -545,5 +593,5 @@ export function whatIf(
     cost: t.cost * (overrides.transportCostMultiplier ?? 1),
   }))
 
-  return allocateHarvest(adjustedHarvest, adjustedDemands, adjustedTransport)
+  return allocateHarvest(adjustedHarvest, adjustedDemands, adjustedTransport, weatherByZone)
 }

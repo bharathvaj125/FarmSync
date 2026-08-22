@@ -3,10 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { CloudRain, Thermometer, Users, Gauge } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/AuthContext'
-import { fetchWeatherForecast, type DailyWeather } from '../lib/weather'
+import { fetchWeatherForecast, ZONES, type DailyWeather } from '../lib/weather'
 import { computeHarvestSuggestion, type HarvestSuggestion } from '../lib/harvestSuggestion'
-
-const ZONES = ['Hyderabad', 'Medchal', 'Zaheerabad', 'Warangal']
 
 export default function CreateHarvest() {
   const navigate = useNavigate()
@@ -15,7 +13,7 @@ export default function CreateHarvest() {
     crop: 'Tomato',
     quantity_kg: '',
     harvest_days: '',
-    zone: 'Hyderabad',
+    zone: profile?.home_zone ?? ZONES[0],
     quality_grade: 'A',
     minimum_price: '',
   })

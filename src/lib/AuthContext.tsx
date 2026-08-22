@@ -9,6 +9,8 @@ export interface Profile {
   email: string
   display_name: string
   role: Role
+  phone_number: string | null
+  home_zone: string | null
 }
 
 interface AuthState {

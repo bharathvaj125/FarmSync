@@ -17,7 +17,17 @@ export const ZONE_COORDINATES: Record<string, { lat: number; lon: number }> = {
   Medchal: { lat: 17.6274, lon: 78.4805 },
   Zaheerabad: { lat: 17.7167, lon: 77.6 },
   Warangal: { lat: 17.9689, lon: 79.5941 },
+  Sangareddy: { lat: 17.6248, lon: 78.0867 },
+  Siddipet: { lat: 18.1048, lon: 78.8486 },
+  Nalgonda: { lat: 17.0544, lon: 79.2671 },
+  Karimnagar: { lat: 18.4392, lon: 79.1286 },
 }
+
+// Every dropdown that lets a farmer/buyer/transporter pick a zone reads
+// from this single list, so a new zone only ever needs to be added here --
+// weather, the harvest suggestion score, and the deal-scoring engine all
+// pick it up automatically since they key off the same zone names.
+export const ZONES = Object.keys(ZONE_COORDINATES)
 
 export interface DailyWeather {
   date: string
