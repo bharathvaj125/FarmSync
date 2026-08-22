@@ -94,25 +94,27 @@ this tier makes that true.
 Makes this read as a real product with a business model, not a hackathon
 toy — this is what turns "innovative demo" into "revenue-generatable."
 
-- [ ] **Phase 6 — Transaction confirmation.** `src/pages/
-      ConfirmTransaction.tsx` — full deal breakdown, confirm button writes
-      to `transactions` (table already exists in `supabase/schema.sql`).
-- [ ] **Phase 5 (from earlier draft) — Create-harvest / create-demand
-      forms**, so the demo isn't locked to seed data.
-- [ ] **Revenue model surfaced in-app**, not just the pitch deck: a small
-      "platform fee" line item shown on the confirmation screen (e.g. 2%
-      transaction commission), computed and displayed, not just claimed
-      verbally.
+- [x] **Phase 6 — Transaction confirmation.** `ConfirmTransaction.tsx`
+      (`/confirm?harvest=X&demand=Y`) — re-derives the deal live from the
+      DB (not cached from the dashboard), full breakdown, confirm button
+      writes to `transactions`. Tested end-to-end with a real insert.
+- [x] **Phase 5 — Create-harvest / create-demand forms.**
+      `CreateHarvest.tsx` (`/farmer/new`) and `CreateDemand.tsx`
+      (`/shop/new`), linked from both dashboards' headers and empty
+      states.
+- [x] **Revenue model surfaced in-app.** Platform commission (2% of
+      landed cost, same rate as the Overview metric) shown as its own
+      line on the confirmation screen, computed not claimed.
 - [x] **Business metrics view** — done ahead of schedule as the Overview
       screen (`src/pages/Overview.tsx`): GMV, platform revenue at 2%,
       farmer uplift vs. naive selling, shop savings vs. cheapest quote,
       matched-kg / matched-demand counts, all computed live via
-      `computePlatformMetrics()`. Transport utilization stays open until
-      Tier 2 gives transport capacity something to be utilized against.
-- [ ] **Polish pass** — loading/empty states everywhere (reuse the
-      `Centered` pattern from `App.tsx`), mobile-responsive check, one
-      shared currency/number formatting helper instead of scattered
-      `.toFixed()` calls.
+      `computePlatformMetrics()`. Transport utilization now shown on the
+      Transport dashboard (Tier 2).
+- [ ] **Polish pass** — loading/empty states mostly reused already via
+      the `Centered` pattern; still open: mobile-responsive check, and a
+      pass to replace any remaining scattered `.toFixed()` calls with the
+      `format.ts` helpers.
 
 ---
 
