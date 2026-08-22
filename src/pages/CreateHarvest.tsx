@@ -10,7 +10,7 @@ export default function CreateHarvest() {
     crop: 'Tomato',
     quantity_kg: '',
     harvest_days: '',
-    zone: 'Zone A',
+    zone: 'Hyderabad',
     quality_grade: 'A',
     minimum_price: '',
   })
@@ -41,7 +41,7 @@ export default function CreateHarvest() {
     navigate('/farmer')
   }
 
-  const zones = ['Zone A', 'Zone B', 'Zone C', 'Zone D']
+  const zones = ['Hyderabad', 'Medchal', 'Zaheerabad', 'Warangal']
 
   return (
     <main className="mx-auto max-w-lg px-8 py-10">

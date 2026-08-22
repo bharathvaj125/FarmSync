@@ -12,7 +12,7 @@ export default function CreateDemand() {
     crop: 'Tomato',
     quantity_kg: '',
     required_in_days: '',
-    zone: 'Zone A',
+    zone: 'Hyderabad',
     max_price: '',
     quality_required: 'A',
   })
@@ -43,7 +43,7 @@ export default function CreateDemand() {
     navigate('/shop')
   }
 
-  const zones = ['Zone A', 'Zone B', 'Zone C', 'Zone D']
+  const zones = ['Hyderabad', 'Medchal', 'Zaheerabad', 'Warangal']
 
   return (
     <main className="mx-auto max-w-lg px-8 py-10">

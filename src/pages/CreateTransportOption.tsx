@@ -7,8 +7,8 @@ export default function CreateTransportOption() {
   const navigate = useNavigate()
   const { profile } = useAuth()
   const [form, setForm] = useState({
-    origin_zone: 'Zone A',
-    destination_zone: 'Zone A',
+    origin_zone: 'Hyderabad',
+    destination_zone: 'Hyderabad',
     capacity_kg: '',
     cost: '',
     reliability_score: '0.9',
@@ -45,7 +45,7 @@ export default function CreateTransportOption() {
     navigate('/transport')
   }
 
-  const zones = ['Zone A', 'Zone B', 'Zone C', 'Zone D']
+  const zones = ['Hyderabad', 'Medchal', 'Zaheerabad', 'Warangal']
 
   return (
     <main className="mx-auto max-w-lg px-8 py-10">
