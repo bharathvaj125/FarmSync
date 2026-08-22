@@ -1,19 +1,14 @@
 import { useState } from 'react'
 import { Navigate } from 'react-router-dom'
-import { Sprout, Store, Truck, LineChart } from 'lucide-react'
+import { Sprout, Check, Mail, Lock, Eye, EyeOff, ArrowRight, ShieldCheck } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth, homeFor } from '../lib/AuthContext'
-
-const FEATURES = [
-  { icon: Sprout, text: 'Farmers see net realization, not just headline price' },
-  { icon: Store, text: 'Shops see landed cost, not just the quoted rate' },
-  { icon: Truck, text: 'Every route matched against real truck capacity' },
-]
 
 export default function Login() {
   const { session, profile, loading } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -37,114 +32,104 @@ export default function Login() {
   }
 
   return (
-    <div className="flex min-h-screen bg-sand-100">
-      {/* Brand panel */}
-      <div className="relative hidden w-[44%] flex-none overflow-hidden bg-gradient-to-br from-brand-700 via-brand-600 to-channel-900 lg:flex lg:flex-col lg:justify-between lg:p-12">
-        <div
-          className="pointer-events-none absolute -left-24 -top-24 h-96 w-96 rounded-full bg-channel-400 opacity-20 blur-3xl"
-          aria-hidden
-        />
-        <div
-          className="pointer-events-none absolute -bottom-32 -right-16 h-96 w-96 rounded-full bg-brand-200 opacity-20 blur-3xl"
-          aria-hidden
-        />
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#080C07] px-6 py-12">
+      <div
+        className="pointer-events-none absolute -left-32 -top-32 h-96 w-96 rounded-full bg-brand-500 opacity-[0.12] blur-3xl"
+        aria-hidden
+      />
+      <div
+        className="pointer-events-none absolute -bottom-40 -right-24 h-[28rem] w-[28rem] rounded-full bg-channel-400 opacity-[0.10] blur-3xl"
+        aria-hidden
+      />
 
-        <div className="relative flex items-center gap-2.5">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/15 backdrop-blur">
-            <Sprout size={20} className="text-white" />
+      <div className="relative w-full max-w-sm rounded-3xl border border-white/10 bg-[#10150F] p-8 shadow-[0_0_0_1px_rgba(255,255,255,0.03),0_30px_60px_-20px_rgba(0,0,0,0.6)]">
+        <div className="flex flex-col items-center text-center">
+          <div className="relative mb-4">
+            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-500 to-channel-600 shadow-lg shadow-brand-900/40">
+              <Sprout size={30} className="text-white" />
+            </div>
+            <div className="absolute -bottom-1.5 -right-1.5 flex h-6 w-6 items-center justify-center rounded-full border-2 border-[#10150F] bg-brand-400">
+              <Check size={12} className="text-[#0A0E0A]" strokeWidth={3} />
+            </div>
           </div>
-          <span className="font-display text-lg font-bold text-white">FarmSync</span>
-        </div>
 
-        <div className="relative">
-          <p className="mb-3 font-display text-xs font-semibold uppercase tracking-widest text-brand-100">
+          <p className="font-display text-[11px] font-semibold uppercase tracking-[0.15em] text-brand-400">
             Farm → Shop → Logistics
           </p>
-          <h1 className="font-display max-w-sm text-3xl font-bold leading-tight text-white">
-            The decision layer for every harvest trade.
-          </h1>
-          <p className="mt-3 max-w-sm text-sm leading-relaxed text-white/70">
-            One shared optimizer, three roles. Nobody sees a raw price list — everyone sees the number
-            that actually matters to them.
-          </p>
-
-          <div className="mt-8 space-y-3">
-            {FEATURES.map(({ icon: Icon, text }) => (
-              <div key={text} className="flex items-center gap-3 rounded-xl bg-white/10 px-4 py-3 backdrop-blur">
-                <div className="flex h-8 w-8 flex-none items-center justify-center rounded-lg bg-white/15">
-                  <Icon size={15} className="text-white" />
-                </div>
-                <span className="text-sm text-white/90">{text}</span>
-              </div>
-            ))}
-          </div>
+          <h1 className="mt-1 font-display text-2xl font-bold text-white">FarmSync</h1>
+          <p className="mt-1 text-sm text-white/40">Decision Intelligence Platform</p>
         </div>
 
-        <div className="relative flex items-center gap-2 text-xs text-white/50">
-          <LineChart size={14} />
-          Live optimization, computed on every login
-        </div>
-      </div>
-
-      {/* Form panel */}
-      <div className="flex flex-1 items-center justify-center px-6 py-12">
-        <div className="w-full max-w-sm">
-          <div className="mb-8 flex flex-col items-center text-center lg:hidden">
-            <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500 to-channel-600">
-              <Sprout size={24} className="text-white" />
-            </div>
-            <h1 className="font-display text-2xl font-bold text-sand-900">FarmSync</h1>
-            <p className="mt-1 text-sm text-sand-500">Farm → Shop → Logistics decision intelligence</p>
-          </div>
-
-          <div className="mb-6 hidden lg:block">
-            <h2 className="font-display text-2xl font-bold text-sand-900">Welcome back</h2>
-            <p className="mt-1 text-sm text-sand-500">Log in with your account to see your view.</p>
-          </div>
-
-          <form
-            onSubmit={handleSubmit}
-            className="space-y-4 rounded-2xl border border-sand-200 bg-white p-6 shadow-[0_1px_2px_rgba(29,27,21,0.04),0_16px_40px_-16px_rgba(29,27,21,0.15)]"
-          >
-            <label className="block">
-              <span className="mb-1 block text-xs font-medium text-sand-600">Email</span>
+        <form onSubmit={handleSubmit} className="mt-7 space-y-4">
+          <div>
+            <label className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-white/60">
+              <Mail size={12} className="text-brand-400" />
+              Email
+            </label>
+            <div className="relative">
+              <Mail size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-white/25" />
               <input
                 required
                 type="email"
                 autoComplete="username"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full rounded-md border border-sand-300 px-3 py-2 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                className="w-full rounded-lg border border-white/10 bg-white/5 py-2.5 pl-9 pr-3 text-sm text-white placeholder-white/25 outline-none transition focus:border-brand-400 focus:ring-1 focus:ring-brand-400/40"
                 placeholder="you@example.com"
               />
-            </label>
+            </div>
+          </div>
 
-            <label className="block">
-              <span className="mb-1 block text-xs font-medium text-sand-600">Password</span>
+          <div>
+            <label className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-white/60">
+              <Lock size={12} className="text-brand-400" />
+              Password
+            </label>
+            <div className="relative">
+              <Lock size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-white/25" />
               <input
                 required
-                type="password"
+                type={showPassword ? 'text' : 'password'}
                 autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full rounded-md border border-sand-300 px-3 py-2 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                className="w-full rounded-lg border border-white/10 bg-white/5 py-2.5 pl-9 pr-9 text-sm text-white placeholder-white/25 outline-none transition focus:border-brand-400 focus:ring-1 focus:ring-brand-400/40"
                 placeholder="••••••••"
               />
-            </label>
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60"
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+              >
+                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+          </div>
 
-            {error && <p className="text-sm text-red-600">{error}</p>}
+          <div className="flex items-center justify-between px-0.5 text-[11px] text-white/35">
+            <span className="flex items-center gap-1.5">
+              <ShieldCheck size={13} className="text-brand-400" />
+              Secure login
+            </span>
+            <span>Demo access</span>
+          </div>
 
-            <button
-              type="submit"
-              disabled={submitting}
-              className="w-full rounded-md bg-gradient-to-r from-brand-600 to-channel-700 py-2.5 text-sm font-medium text-white transition hover:from-brand-700 hover:to-channel-900 disabled:opacity-50"
-            >
-              {submitting ? 'Logging in…' : 'Log in'}
-            </button>
-          </form>
+          {error && <p className="text-sm text-red-400">{error}</p>}
 
-          <p className="mt-6 text-center text-xs text-sand-400">
-            Demo build — ask your admin for account access.
+          <button
+            type="submit"
+            disabled={submitting}
+            className="flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-brand-500 to-channel-600 py-3 text-sm font-semibold text-white transition hover:from-brand-400 hover:to-channel-500 disabled:opacity-50"
+          >
+            {submitting ? 'Logging in…' : 'Log in'}
+            {!submitting && <ArrowRight size={15} />}
+          </button>
+        </form>
+
+        <div className="mt-6 border-t border-white/10 pt-5">
+          <p className="text-center text-[11px] leading-relaxed text-white/30">
+            Demo build for hackathon evaluation. Contact your admin for account access.
           </p>
         </div>
       </div>
