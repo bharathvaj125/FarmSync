@@ -36,6 +36,11 @@ export interface TransportOption {
   capacity_kg: number
   cost: number
   reliability_score: number
+  // Operating hours, e.g. "06:00"/"18:00" -- null means always-on.
+  // Informational only for now, not enforced in matching (see
+  // add_admin_trucks_and_route_timing.sql for why).
+  available_from_time: string | null
+  available_until_time: string | null
 }
 
 export interface CandidateDeal {

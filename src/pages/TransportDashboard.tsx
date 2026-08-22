@@ -76,24 +76,21 @@ export default function TransportDashboard() {
   const myRoutes = transport.filter((t) => t.owner_id === profile?.id)
   const myTrucks = trucks.filter((t) => t.owner_id === profile?.id)
 
-  if (myRoutes.length === 0 && myTrucks.length === 0) {
+  if (myRoutes.length === 0) {
     return (
       <Centered>
-        <p className="mb-3">You haven't listed a route or registered a truck yet.</p>
-        <div className="flex justify-center gap-2">
-          <Link
-            to="/transport/new"
-            className="inline-flex items-center gap-1.5 rounded-md bg-channel-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-channel-700"
-          >
-            <Plus size={14} /> List a route
-          </Link>
-          <Link
-            to="/transport/new-truck"
-            className="inline-flex items-center gap-1.5 rounded-md border border-sand-300 px-3.5 py-2 text-sm font-medium text-sand-700 hover:bg-sand-100"
-          >
-            <Plus size={14} /> Register a truck
-          </Link>
-        </div>
+        <p className="mb-3">You haven't listed a route yet.</p>
+        <Link
+          to="/transport/new"
+          className="inline-flex items-center gap-1.5 rounded-md bg-channel-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-channel-700"
+        >
+          <Plus size={14} /> List a route
+        </Link>
+        {myTrucks.length === 0 && (
+          <p className="mt-3 text-xs text-sand-500">
+            No trucks assigned to your account yet — an admin registers those.
+          </p>
+        )}
       </Centered>
     )
   }
@@ -121,20 +118,12 @@ export default function TransportDashboard() {
             {myUtilization.toFixed(0)}% utilized · {inr(myEarnings)} earned
           </p>
         </div>
-        <div className="flex flex-none gap-2">
-          <Link
-            to="/transport/new"
-            className="flex items-center gap-1.5 rounded-lg bg-channel-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-channel-700"
-          >
-            <Plus size={14} /> List a route
-          </Link>
-          <Link
-            to="/transport/new-truck"
-            className="flex items-center gap-1.5 rounded-lg border border-sand-300 px-3.5 py-2 text-sm font-medium text-sand-700 hover:bg-sand-100"
-          >
-            <Plus size={14} /> Register a truck
-          </Link>
-        </div>
+        <Link
+          to="/transport/new"
+          className="flex flex-none items-center gap-1.5 rounded-lg bg-channel-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-channel-700"
+        >
+          <Plus size={14} /> List a route
+        </Link>
       </div>
 
       <TruckFleetPanel trucks={myTrucks} harvests={harvests} demands={demands} transactions={transactions} onReleased={load} />
@@ -182,6 +171,9 @@ export default function TransportDashboard() {
                   <span>
                     {utilizationPct.toFixed(0)}% utilized · reliability{' '}
                     {(route.reliability_score * 100).toFixed(0)}%
+                    {route.available_from_time && route.available_until_time && (
+                      <> · timings {route.available_from_time}–{route.available_until_time}</>
+                    )}
                   </span>
                   <span className="tabular font-medium text-channel-700">{inr(earnings)} earned</span>
                 </div>

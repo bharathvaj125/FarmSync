@@ -13,6 +13,8 @@ export default function CreateTransportOption() {
     capacity_kg: '',
     cost: '',
     reliability_score: '0.9',
+    available_from_time: '',
+    available_until_time: '',
   })
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -36,6 +38,8 @@ export default function CreateTransportOption() {
       capacity_kg: Number(form.capacity_kg),
       cost: Number(form.cost),
       reliability_score: Number(form.reliability_score),
+      available_from_time: form.available_from_time || null,
+      available_until_time: form.available_until_time || null,
     })
 
     setSubmitting(false)
@@ -124,6 +128,28 @@ export default function CreateTransportOption() {
             className="w-full rounded-md border border-sand-300 px-3 py-2 text-sm tabular"
           />
         </Field>
+
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Operating from (optional)">
+            <input
+              type="time"
+              value={form.available_from_time}
+              onChange={(e) => setForm({ ...form, available_from_time: e.target.value })}
+              className="w-full rounded-md border border-sand-300 px-3 py-2 text-sm tabular"
+            />
+          </Field>
+          <Field label="Operating until (optional)">
+            <input
+              type="time"
+              value={form.available_until_time}
+              onChange={(e) => setForm({ ...form, available_until_time: e.target.value })}
+              className="w-full rounded-md border border-sand-300 px-3 py-2 text-sm tabular"
+            />
+          </Field>
+        </div>
+        <p className="text-xs text-sand-500">
+          Shown as your route's timings — leave blank if you run this route all day.
+        </p>
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 

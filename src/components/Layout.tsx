@@ -1,10 +1,11 @@
 import { Link, Outlet, useLocation } from 'react-router-dom'
-import { Sprout, LogOut, Sparkles, LayoutGrid, Users } from 'lucide-react'
+import { Sprout, LogOut, Sparkles, LayoutGrid, Users, Truck } from 'lucide-react'
 import { useAuth, homeFor, ROLE_LABEL } from '../lib/AuthContext'
 
 const ADMIN_NAV = [
   { to: '/', label: 'Analytics', icon: LayoutGrid, exact: true },
   { to: '/admin/users', label: 'People', icon: Users, exact: false },
+  { to: '/admin/trucks', label: 'Fleet', icon: Truck, exact: false },
 ]
 
 export default function Layout() {
