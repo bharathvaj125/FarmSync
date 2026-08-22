@@ -29,6 +29,31 @@ export const ZONE_COORDINATES: Record<string, { lat: number; lon: number }> = {
 // pick it up automatically since they key off the same zone names.
 export const ZONES = Object.keys(ZONE_COORDINATES)
 
+function toRad(deg: number): number {
+  return (deg * Math.PI) / 180
+}
+
+/**
+ * Great-circle (straight-line) distance in km between two zones, via
+ * their real coordinates above -- verified against the same coordinates
+ * used for live weather. Used to rank backhaul opportunities by actual
+ * proximity instead of a same-zone-or-not guess. Straight-line, not road
+ * distance, so it reads a bit shorter than real driving distance -- fine
+ * for ranking which zone is closer, not for estimating trip cost.
+ */
+export function distanceBetweenZonesKm(zoneA: string, zoneB: string): number | null {
+  const a = ZONE_COORDINATES[zoneA]
+  const b = ZONE_COORDINATES[zoneB]
+  if (!a || !b) return null
+  const R = 6371
+  const dLat = toRad(b.lat - a.lat)
+  const dLon = toRad(b.lon - a.lon)
+  const lat1 = toRad(a.lat)
+  const lat2 = toRad(b.lat)
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h))
+}
+
 export interface DailyWeather {
   date: string
   precipitationMm: number

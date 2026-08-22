@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Truck, ArrowRight, Plus, CheckCircle2, PackageCheck } from 'lucide-react'
+import { Truck, ArrowRight, Plus, CheckCircle2, PackageCheck, Navigation } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { allocateAllHarvests } from '../lib/scoring'
 import { useLiveSync } from '../lib/useLiveSync'
+import { distanceBetweenZonesKm } from '../lib/weather'
 import { inr, kg } from '../lib/format'
 import { useAuth } from '../lib/AuthContext'
 import type { CandidateDeal, DemandRequest, HarvestOffer, Transaction, TransportOption, Truck as TruckRow } from '../lib/types'
@@ -246,6 +247,7 @@ function TruckFleetPanel({
             transaction={transactions.find((t) => t.id === truck.current_transaction_id) ?? null}
             harvests={harvests}
             demands={demands}
+            transactions={transactions}
             onReleased={onReleased}
           />
         ))}
@@ -259,12 +261,14 @@ function TruckRowItem({
   transaction,
   harvests,
   demands,
+  transactions,
   onReleased,
 }: {
   truck: TruckRow
   transaction: Transaction | null
   harvests: HarvestOffer[]
   demands: DemandRequest[]
+  transactions: Transaction[]
   onReleased: () => void
 }) {
   const [busy, setBusy] = useState(false)
@@ -272,6 +276,25 @@ function TruckRowItem({
 
   const harvest = transaction ? harvests.find((h) => h.id === transaction.harvest_offer_id) : null
   const demand = transaction ? demands.find((d) => d.id === transaction.demand_request_id) : null
+
+  // Nearby confirmed deals with no truck yet -- ranked by real distance
+  // from where this truck actually is right now (current_zone, updated by
+  // mark_delivered), not a same-zone-or-not guess. A greedy proximity
+  // search, not ML, same as the rest of the allocation logic.
+  const backhaulCandidates =
+    truck.status === 'available'
+      ? transactions
+          .filter((t) => t.assigned_truck_id === null && t.quantity_kg <= truck.capacity_kg)
+          .map((t) => {
+            const h = harvests.find((x) => x.id === t.harvest_offer_id)
+            const d = demands.find((x) => x.id === t.demand_request_id)
+            const distanceKm = h ? distanceBetweenZonesKm(truck.current_zone, h.zone) : null
+            return h && d && distanceKm !== null ? { transaction: t, harvest: h, demand: d, distanceKm } : null
+          })
+          .filter((x): x is { transaction: Transaction; harvest: HarvestOffer; demand: DemandRequest; distanceKm: number } => x !== null)
+          .sort((a, b) => a.distanceKm - b.distanceKm)
+          .slice(0, 3)
+      : []
 
   async function handleMarkDelivered() {
     if (!transaction) return
@@ -286,11 +309,33 @@ function TruckRowItem({
     onReleased()
   }
 
+  async function handleClaimBackhaul(transactionId: string) {
+    setBusy(true)
+    setError(null)
+    const { error: rpcError } = await supabase.rpc('claim_backhaul', {
+      p_truck_id: truck.id,
+      p_transaction_id: transactionId,
+    })
+    setBusy(false)
+    if (rpcError) {
+      setError(rpcError.message)
+      return
+    }
+    onReleased()
+  }
+
   return (
     <div className="rounded-lg border border-sand-200 p-4">
       <div className="flex items-baseline justify-between">
         <span className="font-medium text-sand-900">
-          {truck.label} · {truck.home_zone}
+          {truck.label}
+          {truck.current_zone !== truck.home_zone ? (
+            <span className="ml-1.5 inline-flex items-center gap-1 text-xs font-normal text-channel-600">
+              <Navigation size={10} /> now at {truck.current_zone}
+            </span>
+          ) : (
+            <span className="ml-1.5 text-xs font-normal text-sand-500">· {truck.home_zone}</span>
+          )}
         </span>
         {truck.status === 'available' ? (
           <span className="flex items-center gap-1 rounded-full bg-brand-100 px-2 py-0.5 text-[10px] font-semibold text-brand-700">
@@ -318,6 +363,29 @@ function TruckRowItem({
           >
             {busy ? 'Updating…' : 'Mark delivered'}
           </button>
+        </div>
+      )}
+
+      {truck.status === 'available' && backhaulCandidates.length > 0 && (
+        <div className="mt-3 space-y-1.5 border-t border-sand-100 pt-3">
+          <p className="text-xs font-medium text-sand-600">
+            Backhaul opportunities near {truck.current_zone}
+          </p>
+          {backhaulCandidates.map(({ transaction: t, harvest: h, demand: d, distanceKm }) => (
+            <div key={t.id} className="flex items-center justify-between gap-2 text-xs">
+              <span className="text-sand-500">
+                {h.farmer_name} → {d.buyer_name} · <span className="tabular">{kg(t.quantity_kg)}</span> ·{' '}
+                <span className="tabular">{distanceKm.toFixed(0)}km away</span>
+              </span>
+              <button
+                onClick={() => handleClaimBackhaul(t.id)}
+                disabled={busy}
+                className="flex-none rounded-md bg-channel-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-channel-700 disabled:opacity-50"
+              >
+                Claim
+              </button>
+            </div>
+          ))}
         </div>
       )}
       {error && <p className="mt-2 text-xs text-red-600">{error}</p>}

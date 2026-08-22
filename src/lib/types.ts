@@ -124,6 +124,7 @@ export interface Truck {
   truck_owner_name: string
   label: string
   home_zone: string
+  current_zone: string // live location -- moves to the delivery zone each time mark_delivered runs
   capacity_kg: number
   reliability_score: number
   status: TruckStatus
