@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Brain, TrendingUp, TrendingDown, Minus, Plus } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/AuthContext'
-import { forecastNextPeriod, type ForecastResult, type SalesRecord } from '../lib/forecasting'
+import { forecastNextWeek, forecastNextMonth, type ForecastResult, type SalesRecord } from '../lib/forecasting'
 
 export default function CreateDemand() {
   const navigate = useNavigate()
@@ -55,7 +55,9 @@ export default function CreateDemand() {
 
       <SalesForecastPanel
         crop={form.crop}
-        onUseSuggestion={(qty) => setForm((f) => ({ ...f, quantity_kg: String(qty) }))}
+        onUseSuggestion={(qty, days) =>
+          setForm((f) => ({ ...f, quantity_kg: String(qty), required_in_days: String(days) }))
+        }
       />
 
       <form
@@ -160,7 +162,7 @@ function SalesForecastPanel({
   onUseSuggestion,
 }: {
   crop: string
-  onUseSuggestion: (quantity: number) => void
+  onUseSuggestion: (quantity: number, days: number) => void
 }) {
   const { profile } = useAuth()
   const [history, setHistory] = useState<SalesRecord[]>([])
@@ -218,7 +220,8 @@ function SalesForecastPanel({
     load()
   }
 
-  const forecast: ForecastResult | null = forecastNextPeriod(history)
+  const weekForecast: ForecastResult | null = forecastNextWeek(history)
+  const monthForecast: ForecastResult | null = forecastNextMonth(history)
 
   return (
     <div className="rounded-2xl border border-brand-200 bg-brand-50/60 p-5">
@@ -299,55 +302,84 @@ function SalesForecastPanel({
         <p className="text-xs text-sand-400">Add one more entry to get a prediction (need at least 2).</p>
       )}
 
-      {forecast && (
-        <div className="rounded-lg border border-brand-200 bg-sand-100 p-3">
-          <div className="flex items-center justify-between">
-            <span className="flex items-center gap-1.5 text-xs font-medium text-sand-600">
-              {forecast.trend === 'increasing' && <TrendingUp size={13} className="text-brand-400" />}
-              {forecast.trend === 'decreasing' && <TrendingDown size={13} className="text-amber-400" />}
-              {forecast.trend === 'stable' && <Minus size={13} className="text-sand-400" />}
-              Trend {forecast.trend} · fit on {forecast.periodsUsed} entries
-            </span>
-          </div>
-
-          <div className="mt-1.5 flex items-baseline justify-between">
-            <span className="tabular font-display text-xl font-bold text-brand-700">
-              {forecast.predictedQuantity}kg
-            </span>
-            <button
-              type="button"
-              onClick={() => onUseSuggestion(forecast.predictedQuantity)}
-              className="rounded-md border border-brand-200 px-2.5 py-1 text-xs font-medium text-brand-700 hover:bg-brand-100"
-            >
-              Use this
-            </button>
-          </div>
-
-          <p className="mt-2 text-[11px] leading-relaxed text-sand-500">
-            For{' '}
-            <span className="font-medium text-sand-700">
-              {forecast.targetStart} → {forecast.targetEnd}
-            </span>{' '}
-            ({Math.round(forecast.targetSpecialDayFraction * 100)}% weekend/holiday days)
-            {forecast.specialDayEffectApplied ? (
-              <>
-                {' '}
-                — adjusted{' '}
-                <span className={forecast.specialDayEffectKg >= 0 ? 'text-brand-400' : 'text-amber-400'}>
-                  {forecast.specialDayEffectKg >= 0 ? '+' : ''}
-                  {forecast.specialDayEffectKg}kg
-                </span>{' '}
-                from your own weekend/holiday pattern.
-              </>
-            ) : (
-              <>
-                {' '}
-                — not enough variation between weekend/holiday and regular days yet, so this is trend-only.
-              </>
-            )}
+      {(weekForecast || monthForecast) && (
+        <div>
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-sand-500">
+            Predicted demand — before you enter anything below
           </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {weekForecast && (
+              <ForecastCard
+                label="Next week"
+                forecast={weekForecast}
+                onUseSuggestion={(qty) => onUseSuggestion(qty, 7)}
+              />
+            )}
+            {monthForecast && (
+              <ForecastCard
+                label="Next month"
+                forecast={monthForecast}
+                onUseSuggestion={(qty) => onUseSuggestion(qty, 30)}
+              />
+            )}
+          </div>
         </div>
       )}
+    </div>
+  )
+}
+
+function ForecastCard({
+  label,
+  forecast,
+  onUseSuggestion,
+}: {
+  label: string
+  forecast: ForecastResult
+  onUseSuggestion: (quantity: number) => void
+}) {
+  return (
+    <div className="rounded-lg border border-brand-200 bg-sand-100 p-3">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold text-sand-800">{label}</span>
+        <span className="flex items-center gap-1 text-[11px] font-medium text-sand-500">
+          {forecast.trend === 'increasing' && <TrendingUp size={12} className="text-brand-400" />}
+          {forecast.trend === 'decreasing' && <TrendingDown size={12} className="text-amber-400" />}
+          {forecast.trend === 'stable' && <Minus size={12} className="text-sand-400" />}
+          {forecast.trend}
+        </span>
+      </div>
+
+      <div className="mt-1.5 flex items-baseline justify-between">
+        <span className="tabular font-display text-xl font-bold text-brand-700">
+          {forecast.predictedQuantity}kg
+        </span>
+        <button
+          type="button"
+          onClick={() => onUseSuggestion(forecast.predictedQuantity)}
+          className="rounded-md border border-brand-200 px-2.5 py-1 text-xs font-medium text-brand-700 hover:bg-brand-100"
+        >
+          Use this
+        </button>
+      </div>
+
+      <p className="mt-2 text-[11px] leading-relaxed text-sand-500">
+        {forecast.targetStart} → {forecast.targetEnd} ·{' '}
+        {Math.round(forecast.targetSpecialDayFraction * 100)}% weekend/holiday days
+        {forecast.specialDayEffectApplied ? (
+          <>
+            {' '}
+            — adjusted{' '}
+            <span className={forecast.specialDayEffectKg >= 0 ? 'text-brand-400' : 'text-amber-400'}>
+              {forecast.specialDayEffectKg >= 0 ? '+' : ''}
+              {forecast.specialDayEffectKg}kg
+            </span>{' '}
+            from your own pattern.
+          </>
+        ) : (
+          <> — trend-only, not enough weekend/holiday variation yet.</>
+        )}
+      </p>
     </div>
   )
 }

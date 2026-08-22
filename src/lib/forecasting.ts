@@ -152,13 +152,24 @@ export function forecastNextPeriod(
   const anchor = sorted[0].period_start
   const n = sorted.length
 
+  // Fit on kg PER DAY, not each entry's raw total. Entries can be
+  // different lengths (a 2-day weekend log vs a 7-day week), and the
+  // target period being predicted can be a different length again (a
+  // week vs a month) -- fitting on raw totals silently assumes every
+  // period is the same length, which produced a real bug: a 30-day
+  // forecast came back identical to the 7-day one, because the model
+  // had only ever learned "typical total for a ~7-day period" and had
+  // no notion of a rate to scale up. Fitting the rate and multiplying
+  // by the target's own length fixes that.
+  const periodLengthDays = (h: SalesRecord) => daysBetween(h.period_start, h.period_end) + 1
   const x1 = sorted.map((h) => daysBetween(anchor, midpointDate(h.period_start, h.period_end)))
   const x2 = sorted.map((h) => specialDayFraction(h.period_start, h.period_end))
-  const y = sorted.map((h) => h.quantity_kg)
+  const y = sorted.map((h) => h.quantity_kg / periodLengthDays(h))
 
   const lastEntry = sorted[n - 1]
   const tStart = targetStart ?? addDays(lastEntry.period_end, 1)
   const tEnd = targetEnd ?? addDays(tStart, 6)
+  const targetLengthDays = daysBetween(tStart, tEnd) + 1
   const targetX1 = daysBetween(anchor, midpointDate(tStart, tEnd))
   const targetX2 = specialDayFraction(tStart, tEnd)
 
@@ -189,17 +200,23 @@ export function forecastNextPeriod(
     ;[slope, intercept] = fitSimpleTrend(x1, y)
   }
 
-  const predictedRaw =
+  const predictedRatePerDay =
     intercept + slope * targetX1 + (specialDayEffectApplied ? specialDayCoefficient * targetX2 : 0)
+  const predictedTotal = predictedRatePerDay * targetLengthDays
+  const specialDayEffectKg = specialDayCoefficient * targetX2 * targetLengthDays
 
-  const meanY = sum(y) / n
-  const weeklySlope = slope * 7
-  const trendThreshold = Math.max(meanY * 0.05, 1)
+  const meanRate = sum(y) / n
+  const weeklyRateChange = slope * 7
+  const trendThreshold = Math.max(meanRate * 0.05, 0.1)
   const trend: ForecastResult['trend'] =
-    weeklySlope > trendThreshold ? 'increasing' : weeklySlope < -trendThreshold ? 'decreasing' : 'stable'
+    weeklyRateChange > trendThreshold
+      ? 'increasing'
+      : weeklyRateChange < -trendThreshold
+        ? 'decreasing'
+        : 'stable'
 
   return {
-    predictedQuantity: Math.max(0, Math.round(predictedRaw)),
+    predictedQuantity: Math.max(0, Math.round(predictedTotal)),
     trend,
     slopePerDay: Math.round(slope * 100) / 100,
     periodsUsed: n,
@@ -207,6 +224,24 @@ export function forecastNextPeriod(
     targetEnd: tEnd,
     targetSpecialDayFraction: Math.round(targetX2 * 100) / 100,
     specialDayEffectApplied,
-    specialDayEffectKg: Math.round(specialDayCoefficient * targetX2),
+    specialDayEffectKg: Math.round(specialDayEffectKg),
   }
+}
+
+function lastPeriodEnd(history: SalesRecord[]): string {
+  return [...history].sort((a, b) => a.period_start.localeCompare(b.period_start))[history.length - 1]
+    .period_end
+}
+
+/** Predicted total for the 7 days right after the most recent logged entry. */
+export function forecastNextWeek(history: SalesRecord[]): ForecastResult | null {
+  return forecastNextPeriod(history)
+}
+
+/** Predicted total for the 30 days right after the most recent logged entry. */
+export function forecastNextMonth(history: SalesRecord[]): ForecastResult | null {
+  if (history.length < 2) return null
+  const start = addDays(lastPeriodEnd(history), 1)
+  const end = addDays(start, 29)
+  return forecastNextPeriod(history, start, end)
 }
