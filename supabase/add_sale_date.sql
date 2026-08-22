@@ -1,3 +1,8 @@
+-- SUPERSEDED -- do not run this file. Use fix_sales_history_schema.sql
+-- instead, which handles this step (and the later period_start/period_end
+-- upgrade) together, safely, regardless of which state your table is
+-- currently in.
+--
 -- Upgrades sales_history from a free-text "period_label" to a real date,
 -- so the forecast can use actual elapsed days and detect a weekend
 -- pattern instead of trusting entries were typed in order. Run once.

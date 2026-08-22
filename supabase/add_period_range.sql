@@ -1,3 +1,7 @@
+-- SUPERSEDED -- do not run this file. Use fix_sales_history_schema.sql
+-- instead, which handles this step safely regardless of whether your
+-- table currently has sale_date, period_label, or neither.
+--
 -- Upgrades sales_history from a single sale_date to a period range
 -- (period_start / period_end), so a shopkeeper can log "sold 400kg from
 -- Aug 1 to Aug 7" instead of one entry per day. Run once.
