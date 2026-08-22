@@ -1,4 +1,4 @@
-import { SlidersHorizontal, RotateCcw } from 'lucide-react'
+import { SlidersHorizontal, RotateCcw, Plus, Minus } from 'lucide-react'
 import type { DemandRequest } from '../lib/types'
 
 export interface WhatIfState {
@@ -28,14 +28,18 @@ export function isWhatIfActive(state: WhatIfState): boolean {
 
 export default function WhatIfPanel({
   demands,
+  baseQuantityKg,
   value,
   onChange,
 }: {
   demands: DemandRequest[]
+  baseQuantityKg: number
   value: WhatIfState
   onChange: (next: WhatIfState) => void
 }) {
   const active = isWhatIfActive(value)
+  const harvestKg = Math.round(value.harvestQuantityMultiplier * baseQuantityKg)
+  const quantityStep = Math.max(10, Math.round(baseQuantityKg * 0.05))
 
   return (
     <div className="rounded-xl border border-channel-200 bg-channel-50 p-5">
@@ -98,23 +102,30 @@ export default function WhatIfPanel({
           value={value.transportCostMultiplier}
           onChange={(v) => onChange({ ...value, transportCostMultiplier: v })}
         />
-        <SliderRow
+
+        <Stepper
           label="Harvest quantity"
-          display={`${Math.round(value.harvestQuantityMultiplier * 100)}%`}
-          min={0.5}
-          max={1.5}
-          step={0.05}
-          value={value.harvestQuantityMultiplier}
-          onChange={(v) => onChange({ ...value, harvestQuantityMultiplier: v })}
-        />
-        <SliderRow
-          label="Extra delay before sale"
-          display={`+${value.extraDelayDays}d`}
+          value={harvestKg}
           min={0}
-          max={10}
-          step={1}
+          max={baseQuantityKg * 2}
+          step={quantityStep}
+          suffix="kg"
+          onChange={(kgValue) =>
+            onChange({
+              ...value,
+              harvestQuantityMultiplier: baseQuantityKg > 0 ? kgValue / baseQuantityKg : 1,
+            })
+          }
+        />
+
+        <Stepper
+          label="Extra delay before sale"
           value={value.extraDelayDays}
-          onChange={(v) => onChange({ ...value, extraDelayDays: v })}
+          min={0}
+          max={30}
+          step={1}
+          suffix="days"
+          onChange={(days) => onChange({ ...value, extraDelayDays: days })}
         />
       </div>
     </div>
@@ -153,6 +164,67 @@ function SliderRow({
         onChange={(e) => onChange(Number(e.target.value))}
         className="w-full accent-channel-600"
       />
+    </div>
+  )
+}
+
+function Stepper({
+  label,
+  value,
+  min,
+  max,
+  step,
+  suffix,
+  onChange,
+}: {
+  label: string
+  value: number
+  min: number
+  max: number
+  step: number
+  suffix: string
+  onChange: (v: number) => void
+}) {
+  const clamp = (v: number) => Math.min(max, Math.max(min, v))
+
+  return (
+    <div>
+      <label className="mb-1 block text-xs font-medium text-sand-600">{label}</label>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          aria-label={`Decrease ${label}`}
+          onClick={() => onChange(clamp(value - step))}
+          className="flex h-7 w-7 flex-none items-center justify-center rounded-md border border-sand-300 bg-white text-sand-600 hover:bg-sand-100 disabled:opacity-40"
+          disabled={value <= min}
+        >
+          <Minus size={12} />
+        </button>
+        <div className="flex flex-1 items-center gap-1.5 rounded-md border border-sand-300 bg-white px-2.5 py-1.5">
+          <input
+            type="number"
+            value={value}
+            min={min}
+            max={max}
+            onChange={(e) => {
+              if (e.target.value === '') return
+              const n = Number(e.target.value)
+              if (!Number.isNaN(n)) onChange(clamp(n))
+            }}
+            className="w-full bg-transparent text-right text-xs tabular outline-none [-moz-appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+          />
+          <span className="flex-none text-xs text-sand-400">{suffix}</span>
+        </div>
+        <button
+          type="button"
+          aria-label={`Increase ${label}`}
+          onClick={() => onChange(clamp(value + step))}
+          className="flex h-7 w-7 flex-none items-center justify-center rounded-md border border-sand-300 bg-white text-sand-600 hover:bg-sand-100 disabled:opacity-40"
+          disabled={value >= max}
+        >
+          <Plus size={12} />
+        </button>
+      </div>
     </div>
   )
 }

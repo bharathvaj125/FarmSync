@@ -199,7 +199,12 @@ function HarvestPanel({
         ))}
       </div>
 
-      <WhatIfPanel demands={demands} value={whatIfState} onChange={setWhatIfState} />
+      <WhatIfPanel
+        demands={demands}
+        baseQuantityKg={harvest.quantity_kg}
+        value={whatIfState}
+        onChange={setWhatIfState}
+      />
     </section>
   )
 }
