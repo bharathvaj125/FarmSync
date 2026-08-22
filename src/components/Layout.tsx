@@ -1,20 +1,21 @@
-import { Link, Outlet, useLocation } from 'react-router-dom'
-import { Sprout, LayoutGrid, Store, Truck } from 'lucide-react'
+import { Link, Outlet } from 'react-router-dom'
+import { Sprout, LogOut, Sparkles } from 'lucide-react'
+import { useAuth, homeFor, type Role } from '../lib/AuthContext'
 
-const NAV = [
-  { to: '/', label: 'Overview', icon: LayoutGrid, end: true },
-  { to: '/farmer', label: 'Farmer', icon: Sprout, end: false },
-  { to: '/shop', label: 'Shopkeeper', icon: Store, end: false },
-  { to: '/transport', label: 'Transport', icon: Truck, end: false },
-]
+const ROLE_LABEL: Record<Role, string> = {
+  farmer: 'Farmer',
+  shop: 'Shopkeeper',
+  transport: 'Transport',
+  admin: 'Admin',
+}
 
 export default function Layout() {
-  const location = useLocation()
+  const { profile, signOut } = useAuth()
 
   return (
     <div className="flex min-h-screen bg-sand-50 text-sand-900">
       <aside className="flex w-60 flex-none flex-col border-r border-sand-200 bg-white px-4 py-6">
-        <Link to="/" className="mb-8 flex items-center gap-2 px-2">
+        <Link to={profile ? homeFor(profile.role) : '/'} className="mb-8 flex items-center gap-2 px-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-600">
             <Sprout size={18} className="text-white" />
           </div>
@@ -24,28 +25,25 @@ export default function Layout() {
           </div>
         </Link>
 
-        <nav className="flex flex-col gap-1">
-          {NAV.map((item) => {
-            const isActive = item.end ? location.pathname === item.to : location.pathname.startsWith(item.to)
-            const Icon = item.icon
-            return (
-              <Link
-                key={item.to}
-                to={item.to}
-                className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition ${
-                  isActive
-                    ? 'bg-brand-50 text-brand-700'
-                    : 'text-sand-600 hover:bg-sand-100 hover:text-sand-900'
-                }`}
-              >
-                <Icon size={16} />
-                {item.label}
-              </Link>
-            )
-          })}
-        </nav>
+        {profile && (
+          <div className="mb-6 rounded-lg bg-sand-100 px-3 py-2.5">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-sand-700">
+              <Sparkles size={12} className="text-brand-500" />
+              {ROLE_LABEL[profile.role]} account
+            </div>
+            <div className="mt-0.5 truncate text-[11px] text-sand-500">{profile.email}</div>
+          </div>
+        )}
 
-        <div className="mt-auto rounded-lg bg-sand-100 px-3 py-3 text-[11px] leading-relaxed text-sand-500">
+        <button
+          onClick={() => signOut()}
+          className="mt-auto flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-sand-600 hover:bg-sand-100 hover:text-sand-900"
+        >
+          <LogOut size={16} />
+          Log out
+        </button>
+
+        <div className="mt-4 rounded-lg bg-sand-100 px-3 py-3 text-[11px] leading-relaxed text-sand-500">
           Demo data, hackathon build. All figures are illustrative — see the seed dataset in{' '}
           <code className="text-sand-600">supabase/schema.sql</code>.
         </div>

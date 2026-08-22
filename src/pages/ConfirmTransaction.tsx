@@ -4,6 +4,7 @@ import { CheckCircle2, ArrowLeft } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { generateCandidateDeals } from '../lib/scoring'
 import { inr, inrPerKg, kg } from '../lib/format'
+import { useAuth, homeFor } from '../lib/AuthContext'
 import type { CandidateDeal, DemandRequest, HarvestOffer, TransportOption } from '../lib/types'
 
 const PLATFORM_COMMISSION_RATE = 0.02
@@ -11,6 +12,7 @@ const PLATFORM_COMMISSION_RATE = 0.02
 export default function ConfirmTransaction() {
   const [params] = useSearchParams()
   const navigate = useNavigate()
+  const { profile } = useAuth()
   const harvestId = params.get('harvest')
   const demandId = params.get('demand')
 
@@ -104,18 +106,12 @@ export default function ConfirmTransaction() {
           {deal.harvestOffer.farmer_name} → {deal.demandRequest.buyer_name} · {kg(deal.quantity_kg)} at{' '}
           {inrPerKg(deal.unit_price)}
         </p>
-        <div className="mt-4 flex justify-center gap-3">
+        <div className="mt-4 flex justify-center">
           <button
-            onClick={() => navigate('/farmer')}
+            onClick={() => navigate(profile ? homeFor(profile.role) : '/login')}
             className="rounded-md border border-sand-300 px-4 py-2 text-sm font-medium text-sand-700 hover:bg-sand-100"
           >
-            Back to farmer view
-          </button>
-          <button
-            onClick={() => navigate('/shop')}
-            className="rounded-md border border-sand-300 px-4 py-2 text-sm font-medium text-sand-700 hover:bg-sand-100"
-          >
-            Back to shop view
+            Back to my dashboard
           </button>
         </div>
       </Centered>
