@@ -406,22 +406,9 @@ function SalesForecastPanel({
               </div>
 
               <p className="mt-2 text-[11px] leading-relaxed text-sand-500">
-                {Math.round(customForecast.targetSpecialDayFraction * 100)}% weekend/holiday days
-                {customForecast.specialDayEffectApplied ? (
-                  <>
-                    {' '}
-                    — adjusted{' '}
-                    <span
-                      className={customForecast.specialDayEffectKg >= 0 ? 'text-brand-400' : 'text-amber-400'}
-                    >
-                      {customForecast.specialDayEffectKg >= 0 ? '+' : ''}
-                      {customForecast.specialDayEffectKg}kg
-                    </span>{' '}
-                    from your own pattern.
-                  </>
-                ) : (
-                  <> — trend-only, not enough weekend/holiday variation yet.</>
-                )}
+                Trend fit on {customForecast.periodsUsed} logged{' '}
+                {customForecast.periodsUsed === 1 ? 'entry' : 'entries'} — {customForecast.slopePerDay >= 0 ? '+' : ''}
+                {customForecast.slopePerDay}kg/day change over time.
               </p>
             </div>
           ) : (
