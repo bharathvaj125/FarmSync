@@ -67,6 +67,7 @@ export default function ConfirmTransaction() {
   const [actionError, setActionError] = useState<string | null>(null)
   const [farmerContact, setFarmerContact] = useState<ContactInfo | null>(null)
   const [buyerContact, setBuyerContact] = useState<ContactInfo | null>(null)
+  const [transporterContact, setTransporterContact] = useState<ContactInfo | null>(null)
   const [transaction, setTransaction] = useState<Transaction | null>(null)
   const [assignedTruck, setAssignedTruck] = useState<Truck | null>(null)
 
@@ -143,9 +144,21 @@ export default function ConfirmTransaction() {
               .select('*')
               .eq('id', transactionRow.assigned_truck_id)
               .single()
-            setAssignedTruck((truckRow as Truck) ?? null)
+            const truck = (truckRow as Truck) ?? null
+            setAssignedTruck(truck)
+            if (truck?.owner_id) {
+              const { data: transporterProfile } = await supabase
+                .from('profiles')
+                .select('display_name,email,phone_number')
+                .eq('id', truck.owner_id)
+                .single()
+              setTransporterContact((transporterProfile as ContactInfo) ?? null)
+            } else {
+              setTransporterContact(null)
+            }
           } else {
             setAssignedTruck(null)
+            setTransporterContact(null)
           }
         }
       } else {
@@ -306,6 +319,7 @@ export default function ConfirmTransaction() {
   if (mode === 'accepted') {
     const isFarmer = profile?.id === harvest.owner_id
     const isBuyer = profile?.id === demand.owner_id
+    const produceCost = terms.quantity_kg * terms.unit_price
     return (
       <main className="mx-auto max-w-lg px-8 py-10">
         <div className="rounded-2xl border border-brand-200 bg-brand-50 p-6 text-center">
@@ -339,14 +353,24 @@ export default function ConfirmTransaction() {
             contact={buyerContact}
             fallbackName={demand.buyer_name}
           />
+          {assignedTruck && (
+            <ContactCard
+              role={`Transporter${profile?.id === assignedTruck.owner_id ? ' (you)' : ''}`}
+              contact={transporterContact}
+              fallbackName={assignedTruck.truck_owner_name}
+            />
+          )}
         </div>
 
         <PaymentSection
           transaction={transaction}
           isBuyer={isBuyer}
           farmerContact={farmerContact}
+          transporterContact={transporterContact}
           buyerName={demand.buyer_name}
-          landedCost={terms.landed_cost}
+          farmerFallbackName={harvest.farmer_name}
+          produceCost={produceCost}
+          hasTruck={!!assignedTruck}
           onUploaded={load}
         />
 
@@ -525,38 +549,120 @@ function ContactCard({
   )
 }
 
+// Two real cash legs, shown separately: produce cost to the farmer,
+// transport cost to whichever truck's owner got assigned. The buyer pays
+// both directly -- FarmSync only holds a screenshot as proof of each.
 function PaymentSection({
   transaction,
   isBuyer,
   farmerContact,
+  transporterContact,
   buyerName,
-  landedCost,
+  farmerFallbackName,
+  produceCost,
+  hasTruck,
   onUploaded,
 }: {
   transaction: Transaction | null
   isBuyer: boolean
   farmerContact: ContactInfo | null
+  transporterContact: ContactInfo | null
   buyerName: string
-  landedCost: number
+  farmerFallbackName: string
+  produceCost: number
+  hasTruck: boolean
+  onUploaded: () => void
+}) {
+  if (!transaction) return null
+
+  return (
+    <div className="mt-4 space-y-3">
+      <PaymentLegCard
+        transactionId={transaction.id}
+        title="Produce payment"
+        amount={produceCost}
+        payeeContact={farmerContact}
+        payeeFallbackName={farmerFallbackName}
+        isPayer={isBuyer}
+        payerName={buyerName}
+        paid={transaction.payment_status === 'paid'}
+        screenshotPath={transaction.payment_screenshot_path}
+        statusColumn="payment_status"
+        screenshotColumn="payment_screenshot_path"
+        uploadedColumn="payment_uploaded_at"
+        onUploaded={onUploaded}
+      />
+      {hasTruck ? (
+        <PaymentLegCard
+          transactionId={transaction.id}
+          title="Transport payment"
+          amount={transaction.transport_cost}
+          payeeContact={transporterContact}
+          payeeFallbackName="the transporter"
+          isPayer={isBuyer}
+          payerName={buyerName}
+          paid={transaction.transport_payment_status === 'paid'}
+          screenshotPath={transaction.transport_payment_screenshot_path}
+          statusColumn="transport_payment_status"
+          screenshotColumn="transport_payment_screenshot_path"
+          uploadedColumn="transport_payment_uploaded_at"
+          onUploaded={onUploaded}
+        />
+      ) : (
+        <div className="rounded-xl border border-sand-200 bg-sand-100 p-4">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-sand-500">Transport payment</p>
+          <p className="mt-2 text-sm text-sand-500">
+            Waiting for a truck to be assigned before transport payment can be arranged.
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function PaymentLegCard({
+  transactionId,
+  title,
+  amount,
+  payeeContact,
+  payeeFallbackName,
+  isPayer,
+  payerName,
+  paid,
+  screenshotPath,
+  statusColumn,
+  screenshotColumn,
+  uploadedColumn,
+  onUploaded,
+}: {
+  transactionId: string
+  title: string
+  amount: number
+  payeeContact: ContactInfo | null
+  payeeFallbackName: string
+  isPayer: boolean
+  payerName: string
+  paid: boolean
+  screenshotPath: string | null
+  statusColumn: 'payment_status' | 'transport_payment_status'
+  screenshotColumn: 'payment_screenshot_path' | 'transport_payment_screenshot_path'
+  uploadedColumn: 'payment_uploaded_at' | 'transport_payment_uploaded_at'
   onUploaded: () => void
 }) {
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
 
-  if (!transaction) return null
-
-  const paid = transaction.payment_status === 'paid'
-  const screenshotUrl = transaction.payment_screenshot_path
-    ? supabase.storage.from('payment-screenshots').getPublicUrl(transaction.payment_screenshot_path).data.publicUrl
+  const screenshotUrl = screenshotPath
+    ? supabase.storage.from('payment-screenshots').getPublicUrl(screenshotPath).data.publicUrl
     : null
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
-    if (!file || !transaction) return
+    if (!file) return
     setUploading(true)
     setUploadError(null)
 
-    const path = `${transaction.id}/${Date.now()}-${file.name}`
+    const path = `${transactionId}/${statusColumn}/${Date.now()}-${file.name}`
     const { error: uploadErr } = await supabase.storage.from('payment-screenshots').upload(path, file)
     if (uploadErr) {
       setUploading(false)
@@ -567,11 +673,11 @@ function PaymentSection({
     const { error: updateErr } = await supabase
       .from('transactions')
       .update({
-        payment_status: 'paid',
-        payment_screenshot_path: path,
-        payment_uploaded_at: new Date().toISOString(),
+        [statusColumn]: 'paid',
+        [screenshotColumn]: path,
+        [uploadedColumn]: new Date().toISOString(),
       })
-      .eq('id', transaction.id)
+      .eq('id', transactionId)
 
     setUploading(false)
     if (updateErr) {
@@ -582,8 +688,8 @@ function PaymentSection({
   }
 
   return (
-    <div className="mt-4 rounded-xl border border-sand-200 bg-sand-100 p-4">
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-sand-500">Payment</p>
+    <div className="rounded-xl border border-sand-200 bg-sand-100 p-4">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-sand-500">{title}</p>
       {paid ? (
         <div className="mt-2">
           <p className="flex items-center gap-1.5 text-sm font-medium text-brand-700">
@@ -599,12 +705,12 @@ function PaymentSection({
             </a>
           )}
         </div>
-      ) : isBuyer ? (
+      ) : isPayer ? (
         <div className="mt-2 space-y-2.5">
           <p className="text-sm text-sand-600">
-            Pay {inr(landedCost)} to {farmerContact?.phone_number ?? "the farmer's registered number"} via UPI
-            or bank transfer, then upload proof here. FarmSync doesn't process this payment — it goes directly
-            between you two.
+            Pay {inr(amount)} to {payeeContact?.phone_number ?? `${payeeFallbackName}'s registered number`} via
+            UPI or bank transfer, then upload proof here. FarmSync doesn't process this payment — it goes
+            directly to them.
           </p>
           <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-brand-600 px-3 py-2 text-xs font-medium text-white hover:bg-brand-700">
             <Upload size={12} /> {uploading ? 'Uploading…' : 'Upload payment screenshot'}
@@ -620,7 +726,7 @@ function PaymentSection({
         </div>
       ) : (
         <p className="mt-2 flex items-center gap-1.5 text-sm text-sand-600">
-          <Clock3 size={14} className="flex-none text-amber-400" /> Waiting for {buyerName} to complete payment
+          <Clock3 size={14} className="flex-none text-amber-400" /> Waiting for {payerName} to complete payment
           and upload proof.
         </p>
       )}

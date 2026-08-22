@@ -109,9 +109,14 @@ export interface DealRequest {
 export type PaymentStatus = 'pending' | 'paid'
 
 // A confirmed deal -- terms are locked in the moment this row exists.
-// Payment happens directly between the two parties (UPI/bank transfer to
-// the phone number already shared); FarmSync never touches the money,
-// it just holds a screenshot as proof once the buyer's paid.
+// Payment happens directly between the parties involved (UPI/bank
+// transfer to the phone number already shared); FarmSync never touches
+// the money, it just holds a screenshot as proof once each leg is paid.
+// Two real cash legs, not one: produce cost (quantity x unit_price) to
+// the farmer, and transport_cost to whichever truck's owner got
+// assigned. Spoilage/reliability/weather risk stay analytical -- they're
+// what net_realization/landed_cost use to rank and compare deals, not
+// something anyone actually invoices.
 export interface Transaction {
   id: string
   harvest_offer_id: string
@@ -122,9 +127,13 @@ export interface Transaction {
   net_realization: number
   landed_cost: number
   score: number
+  transport_cost: number
   payment_status: PaymentStatus
   payment_screenshot_path: string | null
   payment_uploaded_at: string | null
+  transport_payment_status: PaymentStatus
+  transport_payment_screenshot_path: string | null
+  transport_payment_uploaded_at: string | null
   confirmed_at: string
   assigned_truck_id: string | null
 }

@@ -344,17 +344,34 @@ function TruckRowItem({
       </p>
 
       {truck.status === 'assigned' && harvest && demand && transaction && (
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-sand-100 pt-3">
-          <p className="text-xs text-sand-500">
-            {harvest.farmer_name} → {demand.buyer_name} · <span className="tabular">{kg(transaction.quantity_kg)}</span>
-          </p>
-          <button
-            onClick={handleMarkDelivered}
-            disabled={busy}
-            className="rounded-md border border-sand-300 px-2.5 py-1.5 text-xs font-medium text-sand-700 hover:bg-sand-100 disabled:opacity-50"
-          >
-            {busy ? 'Updating…' : 'Mark delivered'}
-          </button>
+        <div className="mt-3 border-t border-sand-100 pt-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-sand-500">
+              {harvest.farmer_name} → {demand.buyer_name} · <span className="tabular">{kg(transaction.quantity_kg)}</span>
+            </p>
+            <button
+              onClick={handleMarkDelivered}
+              disabled={busy}
+              className="rounded-md border border-sand-300 px-2.5 py-1.5 text-xs font-medium text-sand-700 hover:bg-sand-100 disabled:opacity-50"
+            >
+              {busy ? 'Updating…' : 'Mark delivered'}
+            </button>
+          </div>
+          <div className="mt-2 flex items-center justify-between gap-2">
+            <span
+              className={`text-xs ${transaction.transport_payment_status === 'paid' ? 'text-brand-700' : 'text-amber-300'}`}
+            >
+              {transaction.transport_payment_status === 'paid'
+                ? `Transport payment received: ${inr(transaction.transport_cost)}`
+                : `Transport payment pending: ${inr(transaction.transport_cost)}`}
+            </span>
+            <Link
+              to={`/confirm?harvest=${harvest.id}&demand=${demand.id}`}
+              className="text-xs font-medium text-channel-700 hover:underline"
+            >
+              View deal
+            </Link>
+          </div>
         </div>
       )}
 

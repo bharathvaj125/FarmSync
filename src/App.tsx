@@ -96,7 +96,7 @@ function App() {
             <Route
               path="confirm"
               element={
-                <RequireRole role={['farmer', 'shop']}>
+                <RequireRole role={['farmer', 'shop', 'transport']}>
                   <ConfirmTransaction />
                 </RequireRole>
               }
