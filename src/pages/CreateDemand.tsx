@@ -51,7 +51,7 @@ export default function CreateDemand() {
         price.
       </p>
 
-      <form onSubmit={handleSubmit} className="space-y-4 rounded-2xl border border-sand-200 bg-white p-6">
+      <form onSubmit={handleSubmit} className="space-y-4 rounded-2xl border border-sand-200 bg-sand-100 p-6">
         <div className="rounded-lg bg-sand-50 px-3 py-2 text-xs text-sand-500">
           Ordering as <span className="font-medium text-sand-800">{profile?.display_name}</span>
         </div>

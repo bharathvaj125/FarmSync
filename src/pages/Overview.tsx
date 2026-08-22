@@ -86,7 +86,7 @@ export default function Overview() {
       )}
 
       {metrics && (
-        <section className="flex items-center gap-3 rounded-xl border border-sand-200 bg-white px-5 py-4 text-sm text-sand-600">
+        <section className="flex items-center gap-3 rounded-xl border border-sand-200 bg-sand-100 px-5 py-4 text-sm text-sand-600">
           <Package size={16} className="flex-none text-sand-400" />
           <span>
             <span className="tabular font-medium text-sand-900">
@@ -123,7 +123,7 @@ function StatCard({
 }) {
   const a = ACCENTS[accent]
   return (
-    <div className="rounded-xl border border-sand-200 bg-white p-5">
+    <div className="rounded-xl border border-sand-200 bg-sand-100 p-5">
       <div className={`mb-3 flex h-8 w-8 items-center justify-center rounded-lg ${a.bg}`}>
         <Icon size={16} className={a.icon} />
       </div>

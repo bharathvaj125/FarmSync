@@ -22,7 +22,7 @@ export default function CollectiveBuyingPanel({
 
       <div className="space-y-3">
         {opportunities.map((opp) => (
-          <div key={`${opp.zone}:${opp.crop}`} className="rounded-lg border border-brand-200 bg-white p-4">
+          <div key={`${opp.zone}:${opp.crop}`} className="rounded-lg border border-brand-200 bg-sand-100 p-4">
             <div className="flex items-baseline justify-between">
               <span className="font-medium text-sand-900">
                 {opp.buyers.length} buyers in {opp.zone} · {opp.crop}

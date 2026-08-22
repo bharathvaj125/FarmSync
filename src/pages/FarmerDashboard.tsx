@@ -174,7 +174,7 @@ function HarvestPanel({
   )
 
   return (
-    <section className="rounded-2xl border border-sand-200 bg-white p-6" style={{ overflowAnchor: 'none' }}>
+    <section className="rounded-2xl border border-sand-200 bg-sand-100 p-6" style={{ overflowAnchor: 'none' }}>
       <div className="mb-1 flex items-baseline justify-between">
         <h2 className="font-display text-lg font-semibold text-sand-900">
           {harvest.farmer_name} — {kg(harvest.quantity_kg)} {harvest.crop}
@@ -194,14 +194,14 @@ function HarvestPanel({
       </div>
 
       {priceIsNotProfit && (
-        <div className="mb-4 flex gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm">
-          <AlertTriangle size={16} className="mt-0.5 flex-none text-amber-600" />
+        <div className="mb-4 flex gap-2.5 rounded-lg border border-amber-900/50 bg-amber-950/30 px-4 py-3 text-sm">
+          <AlertTriangle size={16} className="mt-0.5 flex-none text-amber-400" />
           <p>
-            <span className="font-medium text-amber-800">
+            <span className="font-medium text-amber-300">
               {highestPriceDeal.demandRequest.buyer_name} offers the highest price (
               {inrPerKg(highestPriceDeal.unit_price)})
             </span>
-            <span className="text-amber-700">
+            <span className="text-amber-400">
               {' '}
               but {bestDeal.demandRequest.buyer_name} gives the best net realization after costs.
             </span>

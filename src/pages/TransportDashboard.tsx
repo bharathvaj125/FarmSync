@@ -108,7 +108,7 @@ export default function TransportDashboard() {
         </Link>
       </div>
 
-      <section className="rounded-2xl border border-sand-200 bg-white p-6">
+      <section className="rounded-2xl border border-sand-200 bg-sand-100 p-6">
         <div className="mb-4 flex items-center gap-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-channel-50">
             <Truck size={16} className="text-channel-600" />

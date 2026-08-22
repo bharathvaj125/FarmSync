@@ -13,7 +13,7 @@ export default function Layout() {
 
   return (
     <div className="flex min-h-screen bg-sand-50 text-sand-900">
-      <aside className="flex w-60 flex-none flex-col border-r border-sand-200 bg-white px-4 py-6">
+      <aside className="flex w-60 flex-none flex-col border-r border-sand-200 bg-sand-100 px-4 py-6">
         <Link to={profile ? homeFor(profile.role) : '/'} className="mb-8 flex items-center gap-2 px-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-600">
             <Sprout size={18} className="text-white" />

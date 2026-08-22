@@ -55,7 +55,7 @@ export default function MutualProfitCard({ deal }: { deal: CandidateDeal }) {
             {shopIsBetterOff ? 'versus' : 'more than'} their middleman budget
           </p>
           <p
-            className={`tabular font-display text-lg font-bold ${shopIsBetterOff ? 'text-channel-700' : 'text-amber-700'}`}
+            className={`tabular font-display text-lg font-bold ${shopIsBetterOff ? 'text-channel-700' : 'text-amber-400'}`}
           >
             {shopIsBetterOff ? inr(shopSavingsTotal) : `−${inr(Math.abs(shopSavingsTotal))}`}
           </p>
@@ -63,7 +63,7 @@ export default function MutualProfitCard({ deal }: { deal: CandidateDeal }) {
       </div>
 
       {!shopIsBetterOff && (
-        <p className="mt-3 text-xs text-amber-700">
+        <p className="mt-3 text-xs text-amber-400">
           Logistics costs on this route outweigh the price advantage — the buyer still gets fresher, more
           traceable produce, but the deal isn't a savings story on cost alone here.
         </p>

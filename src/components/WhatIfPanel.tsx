@@ -62,7 +62,7 @@ export default function WhatIfPanel({
         <div>
           <label className="mb-1 block text-xs font-medium text-sand-600">Change buyer price</label>
           <select
-            className="mb-2 w-full rounded-md border border-sand-300 bg-white px-2 py-1.5 text-xs"
+            className="mb-2 w-full rounded-md border border-sand-300 bg-sand-100 px-2 py-1.5 text-xs"
             value={value.demandId}
             onChange={(e) => onChange({ ...value, demandId: e.target.value })}
           >
@@ -189,12 +189,12 @@ function Stepper({
           type="button"
           aria-label={`Decrease ${label || suffix}`}
           onClick={() => onChange(clamp(value - step))}
-          className="flex h-7 w-7 flex-none items-center justify-center rounded-md border border-sand-300 bg-white text-sand-600 hover:bg-sand-100 disabled:opacity-40"
+          className="flex h-7 w-7 flex-none items-center justify-center rounded-md border border-sand-300 bg-sand-100 text-sand-600 hover:bg-sand-100 disabled:opacity-40"
           disabled={disabled || value <= min}
         >
           <Minus size={12} />
         </button>
-        <div className="flex flex-1 items-center gap-1.5 rounded-md border border-sand-300 bg-white px-2.5 py-1.5 disabled:opacity-40">
+        <div className="flex flex-1 items-center gap-1.5 rounded-md border border-sand-300 bg-sand-100 px-2.5 py-1.5 disabled:opacity-40">
           <input
             type="number"
             value={value}
@@ -214,7 +214,7 @@ function Stepper({
           type="button"
           aria-label={`Increase ${label || suffix}`}
           onClick={() => onChange(clamp(value + step))}
-          className="flex h-7 w-7 flex-none items-center justify-center rounded-md border border-sand-300 bg-white text-sand-600 hover:bg-sand-100 disabled:opacity-40"
+          className="flex h-7 w-7 flex-none items-center justify-center rounded-md border border-sand-300 bg-sand-100 text-sand-600 hover:bg-sand-100 disabled:opacity-40"
           disabled={disabled || value >= max}
         >
           <Plus size={12} />

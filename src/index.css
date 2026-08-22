@@ -5,46 +5,58 @@
   --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
 
-  /* sand: warm neutral used for backgrounds/borders instead of default cold grey */
-  --color-sand-50: #FAF9F5;
-  --color-sand-100: #F3F1E9;
-  --color-sand-200: #E6E2D3;
-  --color-sand-300: #D3CDB6;
-  --color-sand-400: #ABA48A;
-  --color-sand-500: #83795F;
-  --color-sand-600: #635C48;
-  --color-sand-700: #4A4536;
-  --color-sand-800: #322F24;
-  --color-sand-900: #1D1B15;
+  /* sand: dark neutral ramp -- 50 is the darkest surface (page bg), 900 the
+     lightest (primary heading text). Same direction the whole app already
+     reads it in (bg-sand-50 = base surface, text-sand-900 = strongest
+     text), just re-pointed at dark values instead of light ones. */
+  --color-sand-50: #0A0E09;
+  --color-sand-100: #12160F;
+  --color-sand-200: #1D231B;
+  --color-sand-300: #2B3228;
+  --color-sand-400: #6E7669;
+  --color-sand-500: #98A091;
+  --color-sand-600: #B5BCAE;
+  --color-sand-700: #CDD3C7;
+  --color-sand-800: #E3E7DF;
+  --color-sand-900: #F5F7F3;
 
-  /* brand: farmer / supply side */
-  --color-brand-50: #EFF7EE;
-  --color-brand-100: #D9EED6;
-  --color-brand-200: #B0DCAA;
-  --color-brand-400: #4E9A47;
-  --color-brand-500: #2F7A2A;
-  --color-brand-600: #226020;
-  --color-brand-700: #1B4C1A;
-  --color-brand-900: #0F2E0E;
+  /* brand: farmer / supply side. 50-200 are translucent-feeling dark tint
+     chips (solid hex, not rgba, so any /opacity modifier applied on top
+     doesn't compound into nothing); 300-600 are the vivid mid-range for
+     icons and solid buttons; 700-900 are bright, for text sitting on a
+     dark surface (a dark-green swatch here would be invisible as text). */
+  --color-brand-50: #162714;
+  --color-brand-100: #1D361A;
+  --color-brand-200: #2A5227;
+  --color-brand-300: #2F6B29;
+  --color-brand-400: #5FC257;
+  --color-brand-500: #4AAE43;
+  --color-brand-600: #3B9235;
+  --color-brand-700: #7BDB73;
+  --color-brand-800: #9BE894;
+  --color-brand-900: #C3F5BE;
 
-  /* channel: shop / demand side */
-  --color-channel-50: #EEF5F7;
-  --color-channel-100: #D6E8EC;
-  --color-channel-200: #ABD1DA;
-  --color-channel-400: #2E7C90;
-  --color-channel-500: #1E6376;
-  --color-channel-600: #174E5D;
-  --color-channel-700: #123D48;
-  --color-channel-900: #0A232A;
+  /* channel: shop / demand side -- same shape as brand. */
+  --color-channel-50: #12242A;
+  --color-channel-100: #163038;
+  --color-channel-200: #1F4956;
+  --color-channel-300: #285E70;
+  --color-channel-400: #53B0C7;
+  --color-channel-500: #3E93AB;
+  --color-channel-600: #2F7A90;
+  --color-channel-700: #7FD4E8;
+  --color-channel-800: #A3E2EF;
+  --color-channel-900: #C9EEF5;
 }
 
 :root {
-  color-scheme: light;
+  color-scheme: dark;
 }
 
 body {
   margin: 0;
   background: var(--color-sand-50);
+  color: var(--color-sand-900);
   font-family: var(--font-sans);
 }
 

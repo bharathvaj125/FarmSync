@@ -130,7 +130,7 @@ export default function ConfirmTransaction() {
       <h1 className="font-display text-2xl font-bold text-sand-900">Confirm transaction</h1>
       <p className="mt-1 mb-6 text-sm text-sand-500">Review the full breakdown before confirming.</p>
 
-      <div className="space-y-4 rounded-2xl border border-sand-200 bg-white p-6">
+      <div className="space-y-4 rounded-2xl border border-sand-200 bg-sand-100 p-6">
         <div className="flex items-baseline justify-between border-b border-sand-100 pb-4">
           <div>
             <p className="font-medium text-sand-900">{deal.harvestOffer.farmer_name}</p>
@@ -192,7 +192,7 @@ function Row({
       : emphasis === 'channel'
         ? 'text-channel-700'
         : emphasis === 'amber'
-          ? 'text-amber-700'
+          ? 'text-amber-400'
           : 'text-sand-900'
   return (
     <div className="flex items-baseline justify-between py-1 text-sm">

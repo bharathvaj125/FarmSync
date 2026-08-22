@@ -122,7 +122,7 @@ function DemandPanel({
   if (!suppliers) return null
   if (suppliers.length === 0) {
     return (
-      <section className="rounded-2xl border border-sand-200 bg-white p-6">
+      <section className="rounded-2xl border border-sand-200 bg-sand-100 p-6">
         <h2 className="font-display text-lg font-semibold text-sand-900">
           {demand.buyer_name} — needs {kg(demand.quantity_kg)} {demand.crop}
         </h2>
@@ -138,7 +138,7 @@ function DemandPanel({
   const quoteIsNotLandedCost = cheapestQuote.harvestOffer.id !== bestLanded.harvestOffer.id
 
   return (
-    <section className="rounded-2xl border border-sand-200 bg-white p-6">
+    <section className="rounded-2xl border border-sand-200 bg-sand-100 p-6">
       <div className="mb-1 flex items-baseline justify-between">
         <h2 className="font-display text-lg font-semibold text-sand-900">
           {demand.buyer_name} — needs {kg(demand.quantity_kg)} {demand.crop}

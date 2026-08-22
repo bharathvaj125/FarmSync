@@ -52,7 +52,7 @@ export default function AdminUsers() {
         if (group.length === 0) return null
         const Icon = ROLE_ICON[role]
         return (
-          <section key={role} className="rounded-2xl border border-sand-200 bg-white p-6">
+          <section key={role} className="rounded-2xl border border-sand-200 bg-sand-100 p-6">
             <div className="mb-4 flex items-center gap-2">
               <Icon size={16} className="text-sand-400" />
               <h2 className="font-display text-sm font-semibold uppercase tracking-wide text-sand-500">
@@ -111,7 +111,7 @@ function RemoveButton({ person, onRemoved }: { person: Profile; onRemoved: () =>
       <button
         onClick={handleRemove}
         disabled={busy}
-        className="flex items-center gap-1 rounded-md border border-sand-300 px-2.5 py-1.5 text-xs font-medium text-sand-600 hover:border-red-300 hover:bg-red-50 hover:text-red-700 disabled:opacity-50"
+        className="flex items-center gap-1 rounded-md border border-sand-300 px-2.5 py-1.5 text-xs font-medium text-sand-600 hover:border-red-800 hover:bg-red-950/40 hover:text-red-400 disabled:opacity-50"
       >
         <Trash2 size={12} />
         {busy ? 'Removing…' : 'Remove'}
@@ -170,7 +170,7 @@ function NewUserForm({ onCreated }: { onCreated: () => void }) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4 rounded-2xl border border-sand-200 bg-white p-6">
+    <form onSubmit={handleSubmit} className="space-y-4 rounded-2xl border border-sand-200 bg-sand-100 p-6">
       <h2 className="font-display text-sm font-semibold text-sand-900">Add a person</h2>
 
       <div className="grid grid-cols-2 gap-4">
