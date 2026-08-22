@@ -7,7 +7,7 @@ import { fetchWeatherForecast } from '../lib/weather'
 import { useLiveSync } from '../lib/useLiveSync'
 import { inr, inrPerKg, kg } from '../lib/format'
 import { useAuth, homeFor } from '../lib/AuthContext'
-import type { DealRequest, DemandRequest, HarvestOffer, Transaction, TransportOption } from '../lib/types'
+import type { DealRequest, DemandRequest, HarvestOffer, Transaction, TransportOption, Truck } from '../lib/types'
 
 const PLATFORM_COMMISSION_RATE = 0.02
 
@@ -68,6 +68,7 @@ export default function ConfirmTransaction() {
   const [farmerContact, setFarmerContact] = useState<ContactInfo | null>(null)
   const [buyerContact, setBuyerContact] = useState<ContactInfo | null>(null)
   const [transaction, setTransaction] = useState<Transaction | null>(null)
+  const [assignedTruck, setAssignedTruck] = useState<Truck | null>(null)
 
   async function loadContacts(h: HarvestOffer, d: DemandRequest) {
     const [farmerProfile, buyerProfile] = await Promise.all([
@@ -134,7 +135,18 @@ export default function ConfirmTransaction() {
         await loadContacts(harvestRow, demandRow)
         if (req.transaction_id) {
           const { data: txn } = await supabase.from('transactions').select('*').eq('id', req.transaction_id).single()
-          setTransaction((txn as Transaction) ?? null)
+          const transactionRow = (txn as Transaction) ?? null
+          setTransaction(transactionRow)
+          if (transactionRow?.assigned_truck_id) {
+            const { data: truckRow } = await supabase
+              .from('trucks')
+              .select('*')
+              .eq('id', transactionRow.assigned_truck_id)
+              .single()
+            setAssignedTruck((truckRow as Truck) ?? null)
+          } else {
+            setAssignedTruck(null)
+          }
         }
       } else {
         setMode(req.requested_by === profile?.id ? 'sent-pending' : 'incoming-pending')
@@ -186,7 +198,7 @@ export default function ConfirmTransaction() {
   // "waiting for response" -- this picks it up live instead of requiring a
   // manual refresh to see the deal flip to accepted (or notice a decline).
   // Also covers payment_status changing once the buyer uploads proof.
-  useLiveSync(['deal_requests', 'transactions'], load)
+  useLiveSync(['deal_requests', 'transactions', 'trucks'], load)
 
   async function handleSendRequest() {
     if (!harvest || !demand || !transport || !terms || !profile) return
@@ -304,6 +316,11 @@ export default function ConfirmTransaction() {
           </p>
           <p className="mt-1 text-sm text-sand-600">
             Expected delivery {formatDateHuman(deliveryDate)} via {transport.label}
+          </p>
+          <p className="mt-1 text-sm text-sand-600">
+            {assignedTruck
+              ? `Truck assigned: ${assignedTruck.label} (${assignedTruck.truck_owner_name})`
+              : 'No truck assigned yet — one will be allocated automatically as they become available.'}
           </p>
           <p className="mt-2 text-xs text-sand-500">
             Terms are locked in. FarmSync doesn't process the payment itself — that happens directly

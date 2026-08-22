@@ -8,6 +8,7 @@ import FarmerDashboard from './pages/FarmerDashboard'
 import ShopDashboard from './pages/ShopDashboard'
 import TransportDashboard from './pages/TransportDashboard'
 import CreateTransportOption from './pages/CreateTransportOption'
+import CreateTruck from './pages/CreateTruck'
 import CreateHarvest from './pages/CreateHarvest'
 import CreateDemand from './pages/CreateDemand'
 import ConfirmTransaction from './pages/ConfirmTransaction'
@@ -81,6 +82,14 @@ function App() {
               element={
                 <RequireRole role="transport">
                   <CreateTransportOption />
+                </RequireRole>
+              }
+            />
+            <Route
+              path="transport/new-truck"
+              element={
+                <RequireRole role="transport">
+                  <CreateTruck />
                 </RequireRole>
               }
             />

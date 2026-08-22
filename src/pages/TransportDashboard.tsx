@@ -1,38 +1,49 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Truck, ArrowRight, Plus } from 'lucide-react'
+import { Truck, ArrowRight, Plus, CheckCircle2, PackageCheck } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { allocateAllHarvests } from '../lib/scoring'
+import { useLiveSync } from '../lib/useLiveSync'
 import { inr, kg } from '../lib/format'
 import { useAuth } from '../lib/AuthContext'
-import type { CandidateDeal, DemandRequest, HarvestOffer, TransportOption } from '../lib/types'
+import type { CandidateDeal, DemandRequest, HarvestOffer, Transaction, TransportOption, Truck as TruckRow } from '../lib/types'
 
 export default function TransportDashboard() {
   const { profile } = useAuth()
   const [harvests, setHarvests] = useState<HarvestOffer[]>([])
   const [demands, setDemands] = useState<DemandRequest[]>([])
   const [transport, setTransport] = useState<TransportOption[]>([])
+  const [trucks, setTrucks] = useState<TruckRow[]>([])
+  const [transactions, setTransactions] = useState<Transaction[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    async function load() {
-      const [h, d, t] = await Promise.all([
-        supabase.from('harvest_offers').select('*').order('created_at'),
-        supabase.from('demand_requests').select('*').order('created_at'),
-        supabase.from('transport_options').select('*').order('created_at'),
-      ])
-      if (h.error || d.error || t.error) {
-        setError(h.error?.message ?? d.error?.message ?? t.error?.message ?? 'Unknown error')
-      } else {
-        setHarvests(h.data as HarvestOffer[])
-        setDemands(d.data as DemandRequest[])
-        setTransport(t.data as TransportOption[])
-      }
-      setLoading(false)
+  async function load() {
+    const [h, d, t, tr, txns] = await Promise.all([
+      supabase.from('harvest_offers').select('*').order('created_at'),
+      supabase.from('demand_requests').select('*').order('created_at'),
+      supabase.from('transport_options').select('*').order('created_at'),
+      supabase.from('trucks').select('*').order('created_at'),
+      supabase.from('transactions').select('*').order('confirmed_at', { ascending: false }),
+    ])
+    if (h.error || d.error || t.error) {
+      setError(h.error?.message ?? d.error?.message ?? t.error?.message ?? 'Unknown error')
+    } else {
+      setHarvests(h.data as HarvestOffer[])
+      setDemands(d.data as DemandRequest[])
+      setTransport(t.data as TransportOption[])
+      setTrucks((tr.data as TruckRow[]) ?? [])
+      setTransactions((txns.data as Transaction[]) ?? [])
     }
+    setLoading(false)
+  }
+
+  useEffect(() => {
     load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useLiveSync(['harvest_offers', 'demand_requests', 'transport_options', 'trucks', 'transactions'], load)
 
   if (loading) return <Centered>Loading FarmSync…</Centered>
   if (error) {
@@ -62,17 +73,26 @@ export default function TransportDashboard() {
   }
 
   const myRoutes = transport.filter((t) => t.owner_id === profile?.id)
+  const myTrucks = trucks.filter((t) => t.owner_id === profile?.id)
 
-  if (myRoutes.length === 0) {
+  if (myRoutes.length === 0 && myTrucks.length === 0) {
     return (
       <Centered>
-        <p className="mb-3">You haven't listed a route yet.</p>
-        <Link
-          to="/transport/new"
-          className="inline-flex items-center gap-1.5 rounded-md bg-channel-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-channel-700"
-        >
-          <Plus size={14} /> List a route
-        </Link>
+        <p className="mb-3">You haven't listed a route or registered a truck yet.</p>
+        <div className="flex justify-center gap-2">
+          <Link
+            to="/transport/new"
+            className="inline-flex items-center gap-1.5 rounded-md bg-channel-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-channel-700"
+          >
+            <Plus size={14} /> List a route
+          </Link>
+          <Link
+            to="/transport/new-truck"
+            className="inline-flex items-center gap-1.5 rounded-md border border-sand-300 px-3.5 py-2 text-sm font-medium text-sand-700 hover:bg-sand-100"
+          >
+            <Plus size={14} /> Register a truck
+          </Link>
+        </div>
       </Centered>
     )
   }
@@ -100,13 +120,23 @@ export default function TransportDashboard() {
             {myUtilization.toFixed(0)}% utilized · {inr(myEarnings)} earned
           </p>
         </div>
-        <Link
-          to="/transport/new"
-          className="flex flex-none items-center gap-1.5 rounded-lg bg-channel-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-channel-700"
-        >
-          <Plus size={14} /> List a route
-        </Link>
+        <div className="flex flex-none gap-2">
+          <Link
+            to="/transport/new"
+            className="flex items-center gap-1.5 rounded-lg bg-channel-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-channel-700"
+          >
+            <Plus size={14} /> List a route
+          </Link>
+          <Link
+            to="/transport/new-truck"
+            className="flex items-center gap-1.5 rounded-lg border border-sand-300 px-3.5 py-2 text-sm font-medium text-sand-700 hover:bg-sand-100"
+          >
+            <Plus size={14} /> Register a truck
+          </Link>
+        </div>
       </div>
+
+      <TruckFleetPanel trucks={myTrucks} harvests={harvests} demands={demands} transactions={transactions} onReleased={load} />
 
       <section className="rounded-2xl border border-sand-200 bg-sand-100 p-6">
         <div className="mb-4 flex items-center gap-2">
@@ -174,6 +204,124 @@ export default function TransportDashboard() {
         </div>
       </section>
     </main>
+  )
+}
+
+/**
+ * Real trucks, distinct from the static routes above -- this is what
+ * accept_deal_request actually assigns to a confirmed deal (proximity +
+ * reliability, atomically, not ML -- see add_trucks.sql). "Mark
+ * delivered" releases a truck back to available so it can be assigned
+ * again; without it a truck would get used up once and the fleet would
+ * never free up.
+ */
+function TruckFleetPanel({
+  trucks,
+  harvests,
+  demands,
+  transactions,
+  onReleased,
+}: {
+  trucks: TruckRow[]
+  harvests: HarvestOffer[]
+  demands: DemandRequest[]
+  transactions: Transaction[]
+  onReleased: () => void
+}) {
+  if (trucks.length === 0) return null
+
+  return (
+    <section className="rounded-2xl border border-sand-200 bg-sand-100 p-6">
+      <div className="mb-4 flex items-center gap-2">
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-channel-50">
+          <PackageCheck size={16} className="text-channel-600" />
+        </div>
+        <h2 className="font-display text-lg font-semibold text-sand-900">My trucks</h2>
+      </div>
+      <div className="space-y-3">
+        {trucks.map((truck) => (
+          <TruckRowItem
+            key={truck.id}
+            truck={truck}
+            transaction={transactions.find((t) => t.id === truck.current_transaction_id) ?? null}
+            harvests={harvests}
+            demands={demands}
+            onReleased={onReleased}
+          />
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function TruckRowItem({
+  truck,
+  transaction,
+  harvests,
+  demands,
+  onReleased,
+}: {
+  truck: TruckRow
+  transaction: Transaction | null
+  harvests: HarvestOffer[]
+  demands: DemandRequest[]
+  onReleased: () => void
+}) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const harvest = transaction ? harvests.find((h) => h.id === transaction.harvest_offer_id) : null
+  const demand = transaction ? demands.find((d) => d.id === transaction.demand_request_id) : null
+
+  async function handleMarkDelivered() {
+    if (!transaction) return
+    setBusy(true)
+    setError(null)
+    const { error: rpcError } = await supabase.rpc('mark_delivered', { p_transaction_id: transaction.id })
+    setBusy(false)
+    if (rpcError) {
+      setError(rpcError.message)
+      return
+    }
+    onReleased()
+  }
+
+  return (
+    <div className="rounded-lg border border-sand-200 p-4">
+      <div className="flex items-baseline justify-between">
+        <span className="font-medium text-sand-900">
+          {truck.label} · {truck.home_zone}
+        </span>
+        {truck.status === 'available' ? (
+          <span className="flex items-center gap-1 rounded-full bg-brand-100 px-2 py-0.5 text-[10px] font-semibold text-brand-700">
+            <CheckCircle2 size={10} /> Available
+          </span>
+        ) : (
+          <span className="rounded-full bg-amber-950/30 px-2 py-0.5 text-[10px] font-semibold text-amber-300">
+            Assigned
+          </span>
+        )}
+      </div>
+      <p className="mt-1 text-xs text-sand-500">
+        {kg(truck.capacity_kg)} capacity · reliability {(truck.reliability_score * 100).toFixed(0)}%
+      </p>
+
+      {truck.status === 'assigned' && harvest && demand && transaction && (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-sand-100 pt-3">
+          <p className="text-xs text-sand-500">
+            {harvest.farmer_name} → {demand.buyer_name} · <span className="tabular">{kg(transaction.quantity_kg)}</span>
+          </p>
+          <button
+            onClick={handleMarkDelivered}
+            disabled={busy}
+            className="rounded-md border border-sand-300 px-2.5 py-1.5 text-xs font-medium text-sand-700 hover:bg-sand-100 disabled:opacity-50"
+          >
+            {busy ? 'Updating…' : 'Mark delivered'}
+          </button>
+        </div>
+      )}
+      {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+    </div>
   )
 }
 

@@ -109,4 +109,24 @@ export interface Transaction {
   payment_screenshot_path: string | null
   payment_uploaded_at: string | null
   confirmed_at: string
+  assigned_truck_id: string | null
+}
+
+export type TruckStatus = 'available' | 'assigned'
+
+// A physical vehicle, distinct from the static routes in TransportOption.
+// Assigned to a confirmed deal by accept_deal_request (proximity +
+// reliability, not ML -- same philosophy as the deal-scoring engine) and
+// released back to 'available' once mark_delivered is called.
+export interface Truck {
+  id: string
+  owner_id: string | null
+  truck_owner_name: string
+  label: string
+  home_zone: string
+  capacity_kg: number
+  reliability_score: number
+  status: TruckStatus
+  current_transaction_id: string | null
+  created_at: string
 }
