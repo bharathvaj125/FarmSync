@@ -1,9 +1,54 @@
 @import "tailwindcss";
 
+@theme {
+  --font-display: 'Sora', system-ui, sans-serif;
+  --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  /* sand: warm neutral used for backgrounds/borders instead of default cold grey */
+  --color-sand-50: #FAF9F5;
+  --color-sand-100: #F3F1E9;
+  --color-sand-200: #E6E2D3;
+  --color-sand-300: #D3CDB6;
+  --color-sand-400: #ABA48A;
+  --color-sand-500: #83795F;
+  --color-sand-600: #635C48;
+  --color-sand-700: #4A4536;
+  --color-sand-800: #322F24;
+  --color-sand-900: #1D1B15;
+
+  /* brand: farmer / supply side */
+  --color-brand-50: #EFF7EE;
+  --color-brand-100: #D9EED6;
+  --color-brand-200: #B0DCAA;
+  --color-brand-400: #4E9A47;
+  --color-brand-500: #2F7A2A;
+  --color-brand-600: #226020;
+  --color-brand-700: #1B4C1A;
+  --color-brand-900: #0F2E0E;
+
+  /* channel: shop / demand side */
+  --color-channel-50: #EEF5F7;
+  --color-channel-100: #D6E8EC;
+  --color-channel-200: #ABD1DA;
+  --color-channel-400: #2E7C90;
+  --color-channel-500: #1E6376;
+  --color-channel-600: #174E5D;
+  --color-channel-700: #123D48;
+  --color-channel-900: #0A232A;
+}
+
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
 }
 
 body {
   margin: 0;
+  background: var(--color-sand-50);
+  font-family: var(--font-sans);
+}
+
+.tabular {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }

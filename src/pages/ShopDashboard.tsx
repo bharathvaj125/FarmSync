@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
+import { Landmark } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { rankSuppliersForDemand } from '../lib/scoring'
+import { inr, inrPerKg, kg } from '../lib/format'
 import type { CandidateDeal, DemandRequest, HarvestOffer, TransportOption } from '../lib/types'
 
 export default function ShopDashboard() {
@@ -34,7 +36,11 @@ export default function ShopDashboard() {
   if (demands.length === 0) return <Centered>No demand requests yet.</Centered>
 
   return (
-    <main className="mx-auto max-w-3xl px-6 py-8 space-y-8">
+    <main className="mx-auto max-w-3xl space-y-8 px-8 py-10">
+      <div>
+        <h1 className="font-display text-2xl font-bold text-sand-900">Shop dashboard</h1>
+        <p className="mt-1 text-sm text-sand-500">Ranked suppliers by expected landed cost, not quoted price.</p>
+      </div>
       {demands.map((demand) => (
         <DemandPanel key={demand.id} demand={demand} harvests={harvests} transport={transport} />
       ))}
@@ -60,11 +66,11 @@ function DemandPanel({
   if (!suppliers) return null
   if (suppliers.length === 0) {
     return (
-      <section className="bg-white border border-neutral-200 rounded-xl p-6">
-        <h2 className="text-lg font-semibold mb-1">
-          {demand.buyer_name} — needs {demand.quantity_kg}kg {demand.crop}
+      <section className="rounded-2xl border border-sand-200 bg-white p-6">
+        <h2 className="font-display text-lg font-semibold text-sand-900">
+          {demand.buyer_name} — needs {kg(demand.quantity_kg)} {demand.crop}
         </h2>
-        <p className="text-sm text-neutral-500">No matching suppliers right now.</p>
+        <p className="mt-1 text-sm text-sand-500">No matching suppliers right now.</p>
       </section>
     )
   }
@@ -76,29 +82,32 @@ function DemandPanel({
   const quoteIsNotLandedCost = cheapestQuote.harvestOffer.id !== bestLanded.harvestOffer.id
 
   return (
-    <section className="bg-white border border-neutral-200 rounded-xl p-6">
-      <div className="flex items-baseline justify-between mb-1">
-        <h2 className="text-lg font-semibold">
-          {demand.buyer_name} — needs {demand.quantity_kg}kg {demand.crop}
+    <section className="rounded-2xl border border-sand-200 bg-white p-6">
+      <div className="mb-1 flex items-baseline justify-between">
+        <h2 className="font-display text-lg font-semibold text-sand-900">
+          {demand.buyer_name} — needs {kg(demand.quantity_kg)} {demand.crop}
         </h2>
-        <span className="text-sm text-neutral-500">
+        <span className="text-sm text-sand-500">
           Within {demand.required_in_days} days · {demand.zone}
         </span>
       </div>
-      <p className="text-sm text-neutral-500 mb-4">
+      <p className="mb-4 text-sm text-sand-500">
         {suppliers.length} matching supplier{suppliers.length === 1 ? '' : 's'} found
       </p>
 
       {quoteIsNotLandedCost && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 mb-4 text-sm">
-          <span className="font-medium text-blue-800">
-            {cheapestQuote.harvestOffer.farmer_name} quotes the lowest floor price (₹
-            {cheapestQuote.harvestOffer.minimum_price}/kg)
-          </span>
-          <span className="text-blue-700">
-            {' '}
-            but {bestLanded.harvestOffer.farmer_name} gives the lowest actual landed cost.
-          </span>
+        <div className="mb-4 flex gap-2.5 rounded-lg border border-channel-200 bg-channel-50 px-4 py-3 text-sm">
+          <Landmark size={16} className="mt-0.5 flex-none text-channel-600" />
+          <p>
+            <span className="font-medium text-channel-800">
+              {cheapestQuote.harvestOffer.farmer_name} quotes the lowest floor price (
+              {inrPerKg(cheapestQuote.harvestOffer.minimum_price)})
+            </span>
+            <span className="text-channel-700">
+              {' '}
+              but {bestLanded.harvestOffer.farmer_name} gives the lowest actual landed cost.
+            </span>
+          </p>
         </div>
       )}
 
@@ -109,37 +118,37 @@ function DemandPanel({
             ? (nextBest.landed_cost_per_kg - deal.landed_cost_per_kg) * deal.quantity_kg
             : null
           return (
-            <div key={deal.harvestOffer.id} className="border border-neutral-200 rounded-lg p-4">
+            <div key={deal.harvestOffer.id} className="rounded-lg border border-sand-200 p-4">
               <div className="flex items-baseline justify-between">
-                <span className="font-medium">
+                <span className="font-medium text-sand-900">
                   {i === 0 && suppliers.length > 1 && (
-                    <span className="text-xs font-semibold text-blue-700 mr-2">BEST</span>
+                    <span className="mr-2 rounded-full bg-channel-100 px-2 py-0.5 text-[10px] font-semibold text-channel-700">
+                      BEST
+                    </span>
                   )}
                   {deal.harvestOffer.farmer_name}
                 </span>
-                <span className="text-sm font-mono tabular-nums">
-                  {deal.quantity_kg}kg from {deal.harvestOffer.zone}
+                <span className="tabular text-sm text-sand-600">
+                  {kg(deal.quantity_kg)} from {deal.harvestOffer.zone}
                 </span>
               </div>
-              <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-sm text-neutral-600">
+              <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-sm text-sand-600">
                 <span>Quoted floor price</span>
-                <span className="text-right font-mono tabular-nums">
-                  ₹{deal.harvestOffer.minimum_price}/kg
-                </span>
+                <span className="tabular text-right">{inrPerKg(deal.harvestOffer.minimum_price)}</span>
                 <span>Landed cost</span>
-                <span className="text-right font-mono tabular-nums text-blue-700">
-                  ₹{deal.landed_cost.toFixed(0)} (₹{deal.landed_cost_per_kg.toFixed(2)}/kg)
+                <span className="tabular text-right font-medium text-channel-700">
+                  {inr(deal.landed_cost)} ({inrPerKg(deal.landed_cost_per_kg)})
                 </span>
                 {savingsVsNext !== null && (
                   <>
                     <span>Saves vs. next-best supplier</span>
-                    <span className="text-right font-mono tabular-nums text-emerald-700">
-                      ₹{savingsVsNext.toFixed(0)}
+                    <span className="tabular text-right font-medium text-brand-700">
+                      {inr(savingsVsNext)}
                     </span>
                   </>
                 )}
               </div>
-              <p className="mt-2 text-xs text-neutral-500">{deal.explanation}</p>
+              <p className="mt-2 text-xs text-sand-400">{deal.explanation}</p>
             </div>
           )
         })}
@@ -151,7 +160,7 @@ function DemandPanel({
 function Centered({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex items-center justify-center px-6 py-24">
-      <div className="text-center">{children}</div>
+      <div className="text-center text-sand-500">{children}</div>
     </div>
   )
 }

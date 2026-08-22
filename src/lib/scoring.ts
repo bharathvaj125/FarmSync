@@ -146,13 +146,33 @@ export function allocateHarvest(
   demands: DemandRequest[],
   transportOptions: TransportOption[],
 ): Allocation {
-  const allCandidates = generateCandidateDeals(harvest, demands, transportOptions)
+  const candidates = generateCandidateDeals(harvest, demands, transportOptions)
+  return greedyFill(harvest, candidates)
+}
 
+/**
+ * The "obvious" strategy a farmer would use without FarmSync: sell to
+ * whoever quotes the highest headline price, ignoring transport/spoilage/
+ * risk. Used only to compute the optimizer's proven uplift for the
+ * Overview screen -- never shown as an actual recommendation.
+ */
+export function allocateHarvestNaive(
+  harvest: HarvestOffer,
+  demands: DemandRequest[],
+  transportOptions: TransportOption[],
+): Allocation {
+  const candidates = generateCandidateDeals(harvest, demands, transportOptions).sort(
+    (a, b) => b.unit_price - a.unit_price,
+  )
+  return greedyFill(harvest, candidates)
+}
+
+function greedyFill(harvest: HarvestOffer, candidatesBestFirst: CandidateDeal[]): Allocation {
   let remaining = harvest.quantity_kg
   const usedDemandIds = new Set<string>()
   const accepted: CandidateDeal[] = []
 
-  for (const candidate of allCandidates) {
+  for (const candidate of candidatesBestFirst) {
     if (remaining <= 0) break
     if (usedDemandIds.has(candidate.demandRequest.id)) continue
 
@@ -204,6 +224,76 @@ export function rankSuppliersForDemand(
     candidates.push(...dealsForThisHarvest)
   }
   return candidates.sort((a, b) => a.landed_cost_per_kg - b.landed_cost_per_kg)
+}
+
+/**
+ * Platform-wide numbers for the Overview screen. Compares FarmSync's
+ * recommendation against the naive baseline (farmer: sell to highest
+ * price; buyer: pick the cheapest quoted floor price) so the uplift is a
+ * computed figure from the live seed data, not a claimed one.
+ */
+export interface PlatformMetrics {
+  gmv: number
+  platformRevenueAt2Percent: number
+  farmerUpliftVsHighestPrice: number
+  shopSavingsVsCheapestQuote: number
+  matchedHarvestKg: number
+  totalHarvestKg: number
+  matchedDemandCount: number
+  totalDemandCount: number
+}
+
+export function computePlatformMetrics(
+  harvests: HarvestOffer[],
+  demands: DemandRequest[],
+  transportOptions: TransportOption[],
+): PlatformMetrics {
+  let gmv = 0
+  let matchedHarvestKg = 0
+  let totalHarvestKg = 0
+  let farmerUpliftVsHighestPrice = 0
+
+  for (const harvest of harvests) {
+    totalHarvestKg += harvest.quantity_kg
+    const optimized = allocateHarvest(harvest, demands, transportOptions)
+    const naive = allocateHarvestNaive(harvest, demands, transportOptions)
+
+    matchedHarvestKg += optimized.allocated_kg
+    gmv += optimized.deals.reduce((sum, d) => sum + d.landed_cost, 0)
+
+    const optimizedRealization = optimized.deals.reduce((sum, d) => sum + d.net_realization, 0)
+    const naiveRealization = naive.deals.reduce((sum, d) => sum + d.net_realization, 0)
+    farmerUpliftVsHighestPrice += optimizedRealization - naiveRealization
+  }
+
+  let matchedDemandCount = 0
+  let shopSavingsVsCheapestQuote = 0
+
+  for (const demand of demands) {
+    const ranked = rankSuppliersForDemand(demand, harvests, transportOptions)
+    if (ranked.length === 0) continue
+    matchedDemandCount += 1
+
+    const optimizedPick = ranked[0]
+    const cheapestQuotePick = [...ranked].sort(
+      (a, b) => a.harvestOffer.minimum_price - b.harvestOffer.minimum_price,
+    )[0]
+    const savingsPerKg = cheapestQuotePick.landed_cost_per_kg - optimizedPick.landed_cost_per_kg
+    if (savingsPerKg > 0) {
+      shopSavingsVsCheapestQuote += savingsPerKg * optimizedPick.quantity_kg
+    }
+  }
+
+  return {
+    gmv,
+    platformRevenueAt2Percent: gmv * 0.02,
+    farmerUpliftVsHighestPrice,
+    shopSavingsVsCheapestQuote,
+    matchedHarvestKg,
+    totalHarvestKg,
+    matchedDemandCount,
+    totalDemandCount: demands.length,
+  }
 }
 
 /** Simulates the allocation with one or more overridden inputs -- powers the What-If screen. */

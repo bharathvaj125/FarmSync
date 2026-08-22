@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import Layout from './components/Layout'
-import Landing from './pages/Landing'
+import Overview from './pages/Overview'
 import FarmerDashboard from './pages/FarmerDashboard'
 import ShopDashboard from './pages/ShopDashboard'
 
@@ -9,7 +9,7 @@ function App() {
     <BrowserRouter>
       <Routes>
         <Route element={<Layout />}>
-          <Route index element={<Landing />} />
+          <Route index element={<Overview />} />
           <Route path="farmer" element={<FarmerDashboard />} />
           <Route path="shop" element={<ShopDashboard />} />
         </Route>

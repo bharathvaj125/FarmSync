@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react'
+import { TrendingUp, AlertTriangle } from 'lucide-react'
 import { supabase } from '../lib/supabase'
-import { allocateHarvest } from '../lib/scoring'
+import { allocateHarvest, whatIf } from '../lib/scoring'
+import { inr, inrPerKg, kg } from '../lib/format'
+import AllocationBar from '../components/AllocationBar'
+import WhatIfPanel, { DEFAULT_WHAT_IF, isWhatIfActive, type WhatIfState } from '../components/WhatIfPanel'
 import type { Allocation, DemandRequest, HarvestOffer, TransportOption } from '../lib/types'
 
 export default function FarmerDashboard() {
@@ -33,12 +37,8 @@ export default function FarmerDashboard() {
   if (error) {
     return (
       <Centered>
-        <p className="text-red-600 font-medium">Failed to load from Supabase:</p>
-        <p className="text-sm text-neutral-500 mt-1">{error}</p>
-        <p className="text-sm text-neutral-500 mt-3">
-          Have you run <code className="bg-neutral-100 px-1 rounded">supabase/schema.sql</code> in the
-          Supabase SQL Editor yet?
-        </p>
+        <p className="font-medium text-red-600">Failed to load from Supabase:</p>
+        <p className="mt-1 text-sm text-sand-500">{error}</p>
       </Centered>
     )
   }
@@ -47,7 +47,11 @@ export default function FarmerDashboard() {
   }
 
   return (
-    <main className="mx-auto max-w-3xl px-6 py-8 space-y-8">
+    <main className="mx-auto max-w-3xl space-y-8 px-8 py-10">
+      <div>
+        <h1 className="font-display text-2xl font-bold text-sand-900">Farmer dashboard</h1>
+        <p className="mt-1 text-sm text-sand-500">Recommended buyers, ranked by expected net realization.</p>
+      </div>
       {harvests.map((harvest) => (
         <HarvestPanel key={harvest.id} harvest={harvest} demands={demands} transport={transport} />
       ))}
@@ -64,11 +68,17 @@ function HarvestPanel({
   demands: DemandRequest[]
   transport: TransportOption[]
 }) {
+  const [whatIfState, setWhatIfState] = useState<WhatIfState>(DEFAULT_WHAT_IF)
   const [allocation, setAllocation] = useState<Allocation | null>(null)
+  const [baselineTopBuyerId, setBaselineTopBuyerId] = useState<string | null>(null)
 
   useEffect(() => {
-    setAllocation(allocateHarvest(harvest, demands, transport))
-  }, [harvest, demands, transport])
+    const base = allocateHarvest(harvest, demands, transport)
+    setBaselineTopBuyerId(base.deals[0]?.demandRequest.id ?? null)
+
+    const active = isWhatIfActive(whatIfState)
+    setAllocation(active ? whatIf(harvest, demands, transport, whatIfState) : base)
+  }, [harvest, demands, transport, whatIfState])
 
   if (!allocation) return null
 
@@ -78,55 +88,87 @@ function HarvestPanel({
   const priceIsNotProfit =
     highestPriceDeal && bestDeal && highestPriceDeal.demandRequest.id !== bestDeal.demandRequest.id
 
+  const rankingFlipped =
+    isWhatIfActive(whatIfState) && bestDeal && baselineTopBuyerId && bestDeal.demandRequest.id !== baselineTopBuyerId
+
   return (
-    <section className="bg-white border border-neutral-200 rounded-xl p-6">
-      <div className="flex items-baseline justify-between mb-1">
-        <h2 className="text-lg font-semibold">
-          {harvest.farmer_name} — {harvest.quantity_kg}kg {harvest.crop}
+    <section className="rounded-2xl border border-sand-200 bg-white p-6">
+      <div className="mb-1 flex items-baseline justify-between">
+        <h2 className="font-display text-lg font-semibold text-sand-900">
+          {harvest.farmer_name} — {kg(harvest.quantity_kg)} {harvest.crop}
         </h2>
-        <span className="text-sm text-neutral-500">Ready in {harvest.harvest_days} days · {harvest.zone}</span>
+        <span className="text-sm text-sand-500">
+          Ready in {harvest.harvest_days} days · {harvest.zone}
+        </span>
       </div>
-      <p className="text-sm text-neutral-500 mb-4">
-        Allocated {allocation.allocated_kg}kg of {harvest.quantity_kg}kg across {allocation.deals.length} buyer
-        {allocation.deals.length === 1 ? '' : 's'}
-        {allocation.unallocated_kg > 0 && ` — ${allocation.unallocated_kg}kg unmatched`}
+      <p className="mb-4 text-sm text-sand-500">
+        Allocated {kg(allocation.allocated_kg)} of {kg(harvest.quantity_kg)} across {allocation.deals.length}{' '}
+        buyer{allocation.deals.length === 1 ? '' : 's'}
+        {allocation.unallocated_kg > 0 && ` — ${kg(allocation.unallocated_kg)} unmatched`}
       </p>
 
+      <div className="mb-5">
+        <AllocationBar allocation={allocation} />
+      </div>
+
       {priceIsNotProfit && (
-        <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 mb-4 text-sm">
-          <span className="font-medium text-amber-800">
-            {highestPriceDeal.demandRequest.buyer_name} offers the highest price (₹{highestPriceDeal.unit_price}/kg)
-          </span>
-          <span className="text-amber-700">
-            {' '}
-            but {bestDeal.demandRequest.buyer_name} gives the best net realization after costs.
-          </span>
+        <div className="mb-4 flex gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm">
+          <AlertTriangle size={16} className="mt-0.5 flex-none text-amber-600" />
+          <p>
+            <span className="font-medium text-amber-800">
+              {highestPriceDeal.demandRequest.buyer_name} offers the highest price (
+              {inrPerKg(highestPriceDeal.unit_price)})
+            </span>
+            <span className="text-amber-700">
+              {' '}
+              but {bestDeal.demandRequest.buyer_name} gives the best net realization after costs.
+            </span>
+          </p>
         </div>
       )}
 
-      <div className="space-y-3">
-        {allocation.deals.map((deal) => (
-          <div key={deal.demandRequest.id} className="border border-neutral-200 rounded-lg p-4">
+      {rankingFlipped && (
+        <div className="mb-4 flex gap-2.5 rounded-lg border border-channel-200 bg-channel-50 px-4 py-3 text-sm">
+          <TrendingUp size={16} className="mt-0.5 flex-none text-channel-600" />
+          <p className="text-channel-800">
+            The ranking changed under this what-if scenario — {bestDeal.demandRequest.buyer_name} is now the
+            top recommendation.
+          </p>
+        </div>
+      )}
+
+      <div className="mb-5 space-y-3">
+        {allocation.deals.map((deal, i) => (
+          <div key={deal.demandRequest.id} className="rounded-lg border border-sand-200 p-4">
             <div className="flex items-baseline justify-between">
-              <span className="font-medium">{deal.demandRequest.buyer_name}</span>
-              <span className="text-sm font-mono tabular-nums">
-                {deal.quantity_kg}kg @ ₹{deal.unit_price}/kg
+              <span className="font-medium text-sand-900">
+                {i === 0 && (
+                  <span className="mr-2 rounded-full bg-brand-100 px-2 py-0.5 text-[10px] font-semibold text-brand-700">
+                    BEST
+                  </span>
+                )}
+                {deal.demandRequest.buyer_name}
+              </span>
+              <span className="tabular text-sm text-sand-600">
+                {kg(deal.quantity_kg)} @ {inrPerKg(deal.unit_price)}
               </span>
             </div>
-            <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-sm text-neutral-600">
+            <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-sm text-sand-600">
               <span>Farmer net realization</span>
-              <span className="text-right font-mono tabular-nums text-emerald-700">
-                ₹{deal.net_realization.toFixed(0)}
+              <span className="tabular text-right font-medium text-brand-700">
+                {inr(deal.net_realization)}
               </span>
               <span>Buyer landed cost</span>
-              <span className="text-right font-mono tabular-nums">
-                ₹{deal.landed_cost.toFixed(0)} (₹{deal.landed_cost_per_kg.toFixed(2)}/kg)
+              <span className="tabular text-right">
+                {inr(deal.landed_cost)} ({inrPerKg(deal.landed_cost_per_kg)})
               </span>
             </div>
-            <p className="mt-2 text-xs text-neutral-500">{deal.explanation}</p>
+            <p className="mt-2 text-xs text-sand-400">{deal.explanation}</p>
           </div>
         ))}
       </div>
+
+      <WhatIfPanel demands={demands} value={whatIfState} onChange={setWhatIfState} />
     </section>
   )
 }
@@ -134,7 +176,7 @@ function HarvestPanel({
 function Centered({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex items-center justify-center px-6 py-24">
-      <div className="text-center">{children}</div>
+      <div className="text-center text-sand-500">{children}</div>
     </div>
   )
 }
