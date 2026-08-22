@@ -134,16 +134,23 @@ function ShopDashboardBody({
 }) {
   const { profile } = useAuth()
 
-  // Only this shop's own demand requests are shown. `demands` (all of
-  // them) still feeds collective-buying detection, since pooling only
-  // means anything when it can see the other buyers in your zone.
-  const myDemands = demands.filter((d) => d.owner_id === profile?.id)
-  const myDemandIds = new Set(myDemands.map((d) => d.id))
+  // Only this shop's own demand requests are shown, and only the ones
+  // still actually needing something -- a demand fully covered by a
+  // confirmed deal has quantity_kg driven down to 0 by confirm_transaction,
+  // and showing that as an open "needs 0kg" panel reads as broken rather
+  // than as the success it actually is. `demands` (all of them, including
+  // fulfilled ones) still feeds collective-buying detection, since pooling
+  // only means anything when it can see the other buyers in your zone.
+  const allMyDemandIds = new Set(demands.filter((d) => d.owner_id === profile?.id).map((d) => d.id))
+  const myDemands = demands.filter((d) => d.owner_id === profile?.id && d.quantity_kg > 0)
 
   // Requests a farmer sent targeting one of my demands -- these need my
-  // response before anything is finalized.
+  // response before anything is finalized. Matched against EVERY demand I
+  // own, not just the ones still showing a panel, so a request against one
+  // that got depleted by a different deal in the meantime still shows up
+  // here (accepting it will then cleanly auto-decline instead).
   const incomingRequests = dealRequests
-    .filter((r) => r.status === 'pending' && r.requested_by_role === 'farmer' && myDemandIds.has(r.demand_request_id))
+    .filter((r) => r.status === 'pending' && r.requested_by_role === 'farmer' && allMyDemandIds.has(r.demand_request_id))
     .map((request) => {
       const harvest = harvests.find((h) => h.id === request.harvest_offer_id)
       const demand = demands.find((d) => d.id === request.demand_request_id)

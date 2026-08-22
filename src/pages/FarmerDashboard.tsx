@@ -121,13 +121,20 @@ export default function FarmerDashboard() {
   // still feeds the allocator below, because a recommendation is only
   // correct if it accounts for every other farmer competing for the same
   // buyers and trucks -- you just don't get to see or manage their rows.
-  const myHarvests = harvests.filter((h) => h.owner_id === profile?.id)
-  const myHarvestIds = new Set(myHarvests.map((h) => h.id))
+  // Only harvests with something left get a panel -- one fully sold out
+  // (quantity_kg driven to 0 by confirm_transaction) has nothing left to
+  // recommend against, and showing it as "ready in N days, 0kg" reads as
+  // broken rather than as the success it actually is.
+  const allMyHarvestIds = new Set(harvests.filter((h) => h.owner_id === profile?.id).map((h) => h.id))
+  const myHarvests = harvests.filter((h) => h.owner_id === profile?.id && h.quantity_kg > 0)
 
   // Requests a shop sent targeting one of my harvests -- these need my
-  // response before anything is finalized.
+  // response before anything is finalized. Matched against EVERY harvest
+  // I own, not just the ones still showing a panel, so a request against
+  // one that got depleted by a different deal in the meantime still shows
+  // up here (accepting it will then cleanly auto-decline instead).
   const incomingRequests = dealRequests
-    .filter((r) => r.status === 'pending' && r.requested_by_role === 'shop' && myHarvestIds.has(r.harvest_offer_id))
+    .filter((r) => r.status === 'pending' && r.requested_by_role === 'shop' && allMyHarvestIds.has(r.harvest_offer_id))
     .map((request) => {
       const harvest = harvests.find((h) => h.id === request.harvest_offer_id)
       const demand = demands.find((d) => d.id === request.demand_request_id)

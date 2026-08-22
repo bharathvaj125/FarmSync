@@ -18,18 +18,26 @@
 --   Nalgonda    ~95km  -> higher cost, lower reliability
 --   Siddipet    ~100km -> higher cost, lower reliability
 --   Karimnagar  ~165km -> highest cost, lowest reliability (farther than Warangal)
+--
+-- Each new zone grows a different real, common Telangana crop instead of
+-- more Tomato -- Cotton, Paddy, Chilli, and Maize are all genuinely major
+-- crops in this region (unlike, say, wheat, which isn't). Prices are
+-- realistic per-kg farmgate ballparks for demo purposes, not sourced from
+-- a live market API the way weather/coordinates are -- chilli in
+-- particular is priced far higher per kg than the others, same as in
+-- reality.
 
 insert into harvest_offers (farmer_name, crop, quantity_kg, harvest_days, zone, quality_grade, minimum_price) values
-('Anitha Reddy',    'Tomato', 900,  4, 'Sangareddy', 'A', 19),
-('Prakash Rao',      'Tomato', 1100, 5, 'Siddipet',   'A', 17),
-('Venkatesh Goud',   'Tomato', 1300, 6, 'Nalgonda',   'B', 15),
-('Manjula Reddy',    'Tomato', 700,  7, 'Karimnagar', 'A', 14);
+('Anitha Reddy',    'Cotton', 900,  4, 'Sangareddy', 'A', 62),
+('Prakash Rao',      'Paddy', 1100, 5, 'Siddipet',   'A', 19),
+('Venkatesh Goud',   'Chilli', 1300, 6, 'Nalgonda',   'B', 160),
+('Manjula Reddy',    'Maize', 700,  7, 'Karimnagar', 'A', 18);
 
 insert into demand_requests (buyer_name, crop, quantity_kg, required_in_days, zone, max_price, quality_required) values
-('Deccan Grocers',        'Tomato', 350, 6, 'Sangareddy', 30, 'A'),
-('Krishna Retail',        'Tomato', 400, 7, 'Siddipet',   27, 'A'),
-('Lakeview Traders',      'Tomato', 300, 8, 'Nalgonda',   25, 'B'),
-('North Telangana Mart',  'Tomato', 450, 9, 'Karimnagar', 24, 'A');
+('Deccan Grocers',        'Cotton', 350, 6, 'Sangareddy', 72, 'A'),
+('Krishna Retail',        'Paddy', 400, 7, 'Siddipet',   24, 'A'),
+('Lakeview Traders',      'Chilli', 300, 8, 'Nalgonda',   190, 'B'),
+('North Telangana Mart',  'Maize', 450, 9, 'Karimnagar', 23, 'A');
 
 insert into transport_options (label, truck_owner_name, origin_zone, destination_zone, capacity_kg, cost, reliability_score) values
 -- within-zone local trucks
