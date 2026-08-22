@@ -91,8 +91,18 @@ function HarvestPanel({
   const rankingFlipped =
     isWhatIfActive(whatIfState) && bestDeal && baselineTopBuyerId && bestDeal.demandRequest.id !== baselineTopBuyerId
 
+  // Cards are shown in a fixed order (matching the demand list as loaded)
+  // instead of re-sorted by score on every slider drag. Re-sorting on every
+  // change made cards swap position and change height mid-drag, which
+  // reads as the page lurching -- the ranking is still communicated via
+  // the BEST tag and the banners above, without the DOM reshuffling.
+  const demandOrder = new Map(demands.map((d, i) => [d.id, i]))
+  const displayDeals = [...allocation.deals].sort(
+    (a, b) => (demandOrder.get(a.demandRequest.id) ?? 0) - (demandOrder.get(b.demandRequest.id) ?? 0),
+  )
+
   return (
-    <section className="rounded-2xl border border-sand-200 bg-white p-6">
+    <section className="rounded-2xl border border-sand-200 bg-white p-6" style={{ overflowAnchor: 'none' }}>
       <div className="mb-1 flex items-baseline justify-between">
         <h2 className="font-display text-lg font-semibold text-sand-900">
           {harvest.farmer_name} — {kg(harvest.quantity_kg)} {harvest.crop}
@@ -108,7 +118,7 @@ function HarvestPanel({
       </p>
 
       <div className="mb-5">
-        <AllocationBar allocation={allocation} />
+        <AllocationBar allocation={allocation} demands={demands} />
       </div>
 
       {priceIsNotProfit && (
@@ -137,12 +147,12 @@ function HarvestPanel({
         </div>
       )}
 
-      <div className="mb-5 space-y-3">
-        {allocation.deals.map((deal, i) => (
+      <div className="mb-5 space-y-3" style={{ overflowAnchor: 'none' }}>
+        {displayDeals.map((deal) => (
           <div key={deal.demandRequest.id} className="rounded-lg border border-sand-200 p-4">
             <div className="flex items-baseline justify-between">
               <span className="font-medium text-sand-900">
-                {i === 0 && (
+                {deal.demandRequest.id === bestDeal?.demandRequest.id && (
                   <span className="mr-2 rounded-full bg-brand-100 px-2 py-0.5 text-[10px] font-semibold text-brand-700">
                     BEST
                   </span>
