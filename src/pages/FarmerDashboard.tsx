@@ -9,9 +9,10 @@ import { inr, inrPerKg, kg } from '../lib/format'
 import AllocationBar from '../components/AllocationBar'
 import MutualProfitCard from '../components/MutualProfitCard'
 import IncomingRequestsPanel from '../components/IncomingRequestsPanel'
+import ConfirmedDealsPanel, { type ConfirmedDeal } from '../components/ConfirmedDealsPanel'
 import WhatIfPanel, { DEFAULT_WHAT_IF, isWhatIfActive, type WhatIfState } from '../components/WhatIfPanel'
 import { useAuth } from '../lib/AuthContext'
-import type { Allocation, DealRequest, DemandRequest, HarvestOffer, TransportOption } from '../lib/types'
+import type { Allocation, DealRequest, DemandRequest, HarvestOffer, Transaction, TransportOption } from '../lib/types'
 
 export default function FarmerDashboard() {
   const { profile } = useAuth()
@@ -19,6 +20,7 @@ export default function FarmerDashboard() {
   const [demands, setDemands] = useState<DemandRequest[]>([])
   const [transport, setTransport] = useState<TransportOption[]>([])
   const [dealRequests, setDealRequests] = useState<DealRequest[]>([])
+  const [transactions, setTransactions] = useState<Transaction[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   // Fetched once per page load and cached for every harvest panel below,
@@ -36,11 +38,12 @@ export default function FarmerDashboard() {
   }, [harvests])
 
   async function load() {
-    const [h, d, t, r] = await Promise.all([
+    const [h, d, t, r, txns] = await Promise.all([
       supabase.from('harvest_offers').select('*').order('created_at'),
       supabase.from('demand_requests').select('*').order('created_at'),
       supabase.from('transport_options').select('*').order('created_at'),
       supabase.from('deal_requests').select('*').order('created_at'),
+      supabase.from('transactions').select('*').order('confirmed_at', { ascending: false }),
     ])
     if (h.error || d.error || t.error) {
       setError(h.error?.message ?? d.error?.message ?? t.error?.message ?? 'Unknown error')
@@ -49,6 +52,7 @@ export default function FarmerDashboard() {
       setDemands(d.data as DemandRequest[])
       setTransport(t.data as TransportOption[])
       setDealRequests((r.data as DealRequest[]) ?? [])
+      setTransactions((txns.data as Transaction[]) ?? [])
     }
     setLoading(false)
   }
@@ -76,7 +80,7 @@ export default function FarmerDashboard() {
   // transport remaining quantities, so this re-fetches all four live --
   // no manual refresh needed to see that a buyer just bought your produce,
   // or that a new request came in.
-  useLiveSync(['harvest_offers', 'demand_requests', 'transport_options', 'deal_requests'], load)
+  useLiveSync(['harvest_offers', 'demand_requests', 'transport_options', 'deal_requests', 'transactions'], load)
 
   // Separate subscription just for the "you got matched" banner -- only
   // fires when the new transaction actually belongs to one of my harvests.
@@ -142,7 +146,23 @@ export default function FarmerDashboard() {
     })
     .filter((x): x is { request: DealRequest; harvest: HarvestOffer; demand: DemandRequest } => x !== null)
 
-  if (myHarvests.length === 0) {
+  // Every deal I've ever confirmed, farmer side -- this is its permanent
+  // home. Matched against every harvest I've ever owned, not just the
+  // ones still active, so a fully sold-out harvest's history doesn't
+  // vanish along with its listing.
+  const myConfirmedDeals = transactions
+    .filter((t) => allMyHarvestIds.has(t.harvest_offer_id))
+    .map((transaction) => {
+      const harvest = harvests.find((h) => h.id === transaction.harvest_offer_id)
+      const demand = demands.find((d) => d.id === transaction.demand_request_id)
+      return harvest && demand ? { transaction, harvest, demand } : null
+    })
+    .filter((x): x is ConfirmedDeal => x !== null)
+
+  // "Haven't entered a harvest yet" only applies if there's truly nothing
+  // on record -- a farmer who sold out their only harvest still has real
+  // confirmed-deal history to see, even with zero active listings.
+  if (allMyHarvestIds.size === 0) {
     return (
       <Centered>
         <p className="mb-3">You haven't entered a harvest yet.</p>
@@ -165,6 +185,7 @@ export default function FarmerDashboard() {
         </div>
       )}
       <IncomingRequestsPanel requests={incomingRequests} viewerRole="farmer" onRespond={load} />
+      <ConfirmedDealsPanel deals={myConfirmedDeals} viewerRole="farmer" />
       <div className="flex items-start justify-between">
         <div>
           <h1 className="font-display text-2xl font-bold text-sand-900">

@@ -84,3 +84,25 @@ export interface DealRequest {
   created_at: string
   responded_at: string | null
 }
+
+export type PaymentStatus = 'pending' | 'paid'
+
+// A confirmed deal -- terms are locked in the moment this row exists.
+// Payment happens directly between the two parties (UPI/bank transfer to
+// the phone number already shared); FarmSync never touches the money,
+// it just holds a screenshot as proof once the buyer's paid.
+export interface Transaction {
+  id: string
+  harvest_offer_id: string
+  demand_request_id: string
+  transport_option_id: string
+  quantity_kg: number
+  unit_price: number
+  net_realization: number
+  landed_cost: number
+  score: number
+  payment_status: PaymentStatus
+  payment_screenshot_path: string | null
+  payment_uploaded_at: string | null
+  confirmed_at: string
+}

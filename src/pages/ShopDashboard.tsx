@@ -8,8 +8,16 @@ import { useLiveSync } from '../lib/useLiveSync'
 import { inr, inrPerKg, kg } from '../lib/format'
 import CollectiveBuyingPanel from '../components/CollectiveBuyingPanel'
 import IncomingRequestsPanel from '../components/IncomingRequestsPanel'
+import ConfirmedDealsPanel, { type ConfirmedDeal } from '../components/ConfirmedDealsPanel'
 import { useAuth } from '../lib/AuthContext'
-import type { CandidateDeal, DealRequest, DemandRequest, HarvestOffer, TransportOption } from '../lib/types'
+import type {
+  CandidateDeal,
+  DealRequest,
+  DemandRequest,
+  HarvestOffer,
+  Transaction,
+  TransportOption,
+} from '../lib/types'
 
 export default function ShopDashboard() {
   const { profile } = useAuth()
@@ -17,6 +25,7 @@ export default function ShopDashboard() {
   const [harvests, setHarvests] = useState<HarvestOffer[]>([])
   const [transport, setTransport] = useState<TransportOption[]>([])
   const [dealRequests, setDealRequests] = useState<DealRequest[]>([])
+  const [transactions, setTransactions] = useState<Transaction[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   // Fetched once per page load and cached for every demand panel below --
@@ -30,11 +39,12 @@ export default function ShopDashboard() {
   }, [demands])
 
   async function load() {
-    const [d, h, t, r] = await Promise.all([
+    const [d, h, t, r, txns] = await Promise.all([
       supabase.from('demand_requests').select('*').order('created_at'),
       supabase.from('harvest_offers').select('*').order('created_at'),
       supabase.from('transport_options').select('*').order('created_at'),
       supabase.from('deal_requests').select('*').order('created_at'),
+      supabase.from('transactions').select('*').order('confirmed_at', { ascending: false }),
     ])
     if (d.error || h.error || t.error) {
       setError(d.error?.message ?? h.error?.message ?? t.error?.message ?? 'Unknown error')
@@ -43,6 +53,7 @@ export default function ShopDashboard() {
       setHarvests(h.data as HarvestOffer[])
       setTransport(t.data as TransportOption[])
       setDealRequests((r.data as DealRequest[]) ?? [])
+      setTransactions((txns.data as Transaction[]) ?? [])
     }
     setLoading(false)
   }
@@ -69,7 +80,7 @@ export default function ShopDashboard() {
   // quantities, so this re-fetches all four live -- no manual refresh
   // needed to see that a farmer's produce or a truck's capacity moved, or
   // that a new request came in.
-  useLiveSync(['harvest_offers', 'demand_requests', 'transport_options', 'deal_requests'], load)
+  useLiveSync(['harvest_offers', 'demand_requests', 'transport_options', 'deal_requests', 'transactions'], load)
 
   useEffect(() => {
     const channel = supabase
@@ -110,6 +121,7 @@ export default function ShopDashboard() {
       weatherByZone={weatherByZone}
       notification={notification}
       dealRequests={dealRequests}
+      transactions={transactions}
       onRespond={load}
     />
   )
@@ -122,6 +134,7 @@ function ShopDashboardBody({
   weatherByZone,
   notification,
   dealRequests,
+  transactions,
   onRespond,
 }: {
   demands: DemandRequest[]
@@ -130,6 +143,7 @@ function ShopDashboardBody({
   weatherByZone: WeatherByZone
   notification: string | null
   dealRequests: DealRequest[]
+  transactions: Transaction[]
   onRespond: () => void
 }) {
   const { profile } = useAuth()
@@ -158,6 +172,19 @@ function ShopDashboardBody({
     })
     .filter((x): x is { request: DealRequest; harvest: HarvestOffer; demand: DemandRequest } => x !== null)
 
+  // Every deal I've ever confirmed, shop side -- its permanent home.
+  // Matched against every demand I've ever owned, not just the ones still
+  // active, so a fully-satisfied demand's history doesn't vanish along
+  // with its listing.
+  const myConfirmedDeals = transactions
+    .filter((t) => allMyDemandIds.has(t.demand_request_id))
+    .map((transaction) => {
+      const harvest = harvests.find((h) => h.id === transaction.harvest_offer_id)
+      const demand = demands.find((d) => d.id === transaction.demand_request_id)
+      return harvest && demand ? { transaction, harvest, demand } : null
+    })
+    .filter((x): x is ConfirmedDeal => x !== null)
+
   const opportunities = useMemo(
     () =>
       findCollectiveBuyingOpportunities(harvests, demands, transport).filter((opp) =>
@@ -166,7 +193,10 @@ function ShopDashboardBody({
     [harvests, demands, transport, profile?.id],
   )
 
-  if (myDemands.length === 0) {
+  // "Haven't entered a demand yet" only applies if there's truly nothing
+  // on record -- a shop that's had all its demand fulfilled still has
+  // real confirmed-deal history to see, even with zero active listings.
+  if (allMyDemandIds.size === 0) {
     return (
       <Centered>
         <p className="mb-3">You haven't entered a demand request yet.</p>
@@ -189,6 +219,7 @@ function ShopDashboardBody({
         </div>
       )}
       <IncomingRequestsPanel requests={incomingRequests} viewerRole="shop" onRespond={onRespond} />
+      <ConfirmedDealsPanel deals={myConfirmedDeals} viewerRole="shop" />
       <div className="flex items-start justify-between">
         <div>
           <h1 className="font-display text-2xl font-bold text-sand-900">

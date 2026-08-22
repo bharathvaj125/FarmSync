@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { CheckCircle2, ArrowLeft, Phone, Mail, Clock, Check, X } from 'lucide-react'
+import { CheckCircle2, ArrowLeft, Phone, Mail, Clock, Clock3, Check, X, Upload } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { generateCandidateDeals, daysUntilDelivery, type WeatherByZone } from '../lib/scoring'
 import { fetchWeatherForecast } from '../lib/weather'
 import { useLiveSync } from '../lib/useLiveSync'
 import { inr, inrPerKg, kg } from '../lib/format'
 import { useAuth, homeFor } from '../lib/AuthContext'
-import type { DealRequest, DemandRequest, HarvestOffer, TransportOption } from '../lib/types'
+import type { DealRequest, DemandRequest, HarvestOffer, Transaction, TransportOption } from '../lib/types'
 
 const PLATFORM_COMMISSION_RATE = 0.02
 
@@ -67,6 +67,7 @@ export default function ConfirmTransaction() {
   const [actionError, setActionError] = useState<string | null>(null)
   const [farmerContact, setFarmerContact] = useState<ContactInfo | null>(null)
   const [buyerContact, setBuyerContact] = useState<ContactInfo | null>(null)
+  const [transaction, setTransaction] = useState<Transaction | null>(null)
 
   async function loadContacts(h: HarvestOffer, d: DemandRequest) {
     const [farmerProfile, buyerProfile] = await Promise.all([
@@ -131,6 +132,10 @@ export default function ConfirmTransaction() {
       if (req.status === 'accepted') {
         setMode('accepted')
         await loadContacts(harvestRow, demandRow)
+        if (req.transaction_id) {
+          const { data: txn } = await supabase.from('transactions').select('*').eq('id', req.transaction_id).single()
+          setTransaction((txn as Transaction) ?? null)
+        }
       } else {
         setMode(req.requested_by === profile?.id ? 'sent-pending' : 'incoming-pending')
       }
@@ -180,7 +185,8 @@ export default function ConfirmTransaction() {
   // If the other party responds while this page is open -- e.g. sitting on
   // "waiting for response" -- this picks it up live instead of requiring a
   // manual refresh to see the deal flip to accepted (or notice a decline).
-  useLiveSync(['deal_requests'], load)
+  // Also covers payment_status changing once the buyer uploads proof.
+  useLiveSync(['deal_requests', 'transactions'], load)
 
   async function handleSendRequest() {
     if (!harvest || !demand || !transport || !terms || !profile) return
@@ -286,31 +292,46 @@ export default function ConfirmTransaction() {
   const deliveryDate = addLocalDays(new Date(), daysUntilDelivery(harvest, demand))
 
   if (mode === 'accepted') {
+    const isFarmer = profile?.id === harvest.owner_id
+    const isBuyer = profile?.id === demand.owner_id
     return (
       <main className="mx-auto max-w-lg px-8 py-10">
         <div className="rounded-2xl border border-brand-200 bg-brand-50 p-6 text-center">
           <CheckCircle2 size={40} className="mx-auto mb-3 text-brand-600" />
-          <p className="font-display text-lg font-semibold text-sand-900">Transaction confirmed</p>
+          <p className="font-display text-lg font-semibold text-sand-900">Deal confirmed</p>
           <p className="mt-1 text-sm text-sand-600">
             {harvest.farmer_name} → {demand.buyer_name} · {kg(terms.quantity_kg)} at {inrPerKg(terms.unit_price)}
           </p>
           <p className="mt-1 text-sm text-sand-600">
             Expected delivery {formatDateHuman(deliveryDate)} via {transport.label}
           </p>
+          <p className="mt-2 text-xs text-sand-500">
+            Terms are locked in. FarmSync doesn't process the payment itself — that happens directly
+            between you two below.
+          </p>
         </div>
 
         <div className="mt-4 space-y-3">
           <ContactCard
-            role={`Farmer${profile?.id === harvest.owner_id ? ' (you)' : ''}`}
+            role={`Farmer${isFarmer ? ' (you)' : ''}`}
             contact={farmerContact}
             fallbackName={harvest.farmer_name}
           />
           <ContactCard
-            role={`Buyer${profile?.id === demand.owner_id ? ' (you)' : ''}`}
+            role={`Buyer${isBuyer ? ' (you)' : ''}`}
             contact={buyerContact}
             fallbackName={demand.buyer_name}
           />
         </div>
+
+        <PaymentSection
+          transaction={transaction}
+          isBuyer={isBuyer}
+          farmerContact={farmerContact}
+          buyerName={demand.buyer_name}
+          landedCost={terms.landed_cost}
+          onUploaded={load}
+        />
 
         <div className="mt-4 flex justify-center">
           <button
@@ -482,6 +503,109 @@ function ContactCard({
         </div>
       ) : (
         <p className="mt-1 text-xs text-sand-400">Contact not available for this listing.</p>
+      )}
+    </div>
+  )
+}
+
+function PaymentSection({
+  transaction,
+  isBuyer,
+  farmerContact,
+  buyerName,
+  landedCost,
+  onUploaded,
+}: {
+  transaction: Transaction | null
+  isBuyer: boolean
+  farmerContact: ContactInfo | null
+  buyerName: string
+  landedCost: number
+  onUploaded: () => void
+}) {
+  const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
+
+  if (!transaction) return null
+
+  const paid = transaction.payment_status === 'paid'
+  const screenshotUrl = transaction.payment_screenshot_path
+    ? supabase.storage.from('payment-screenshots').getPublicUrl(transaction.payment_screenshot_path).data.publicUrl
+    : null
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file || !transaction) return
+    setUploading(true)
+    setUploadError(null)
+
+    const path = `${transaction.id}/${Date.now()}-${file.name}`
+    const { error: uploadErr } = await supabase.storage.from('payment-screenshots').upload(path, file)
+    if (uploadErr) {
+      setUploading(false)
+      setUploadError(uploadErr.message)
+      return
+    }
+
+    const { error: updateErr } = await supabase
+      .from('transactions')
+      .update({
+        payment_status: 'paid',
+        payment_screenshot_path: path,
+        payment_uploaded_at: new Date().toISOString(),
+      })
+      .eq('id', transaction.id)
+
+    setUploading(false)
+    if (updateErr) {
+      setUploadError(updateErr.message)
+      return
+    }
+    onUploaded()
+  }
+
+  return (
+    <div className="mt-4 rounded-xl border border-sand-200 bg-sand-100 p-4">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-sand-500">Payment</p>
+      {paid ? (
+        <div className="mt-2">
+          <p className="flex items-center gap-1.5 text-sm font-medium text-brand-700">
+            <CheckCircle2 size={14} /> Payment marked as received
+          </p>
+          {screenshotUrl && (
+            <a href={screenshotUrl} target="_blank" rel="noreferrer" className="mt-2 block">
+              <img
+                src={screenshotUrl}
+                alt="Payment screenshot"
+                className="max-h-56 rounded-lg border border-sand-200"
+              />
+            </a>
+          )}
+        </div>
+      ) : isBuyer ? (
+        <div className="mt-2 space-y-2.5">
+          <p className="text-sm text-sand-600">
+            Pay {inr(landedCost)} to {farmerContact?.phone_number ?? "the farmer's registered number"} via UPI
+            or bank transfer, then upload proof here. FarmSync doesn't process this payment — it goes directly
+            between you two.
+          </p>
+          <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-brand-600 px-3 py-2 text-xs font-medium text-white hover:bg-brand-700">
+            <Upload size={12} /> {uploading ? 'Uploading…' : 'Upload payment screenshot'}
+            <input
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleFileChange}
+              disabled={uploading}
+            />
+          </label>
+          {uploadError && <p className="text-xs text-red-600">{uploadError}</p>}
+        </div>
+      ) : (
+        <p className="mt-2 flex items-center gap-1.5 text-sm text-sand-600">
+          <Clock3 size={14} className="flex-none text-amber-400" /> Waiting for {buyerName} to complete payment
+          and upload proof.
+        </p>
       )}
     </div>
   )
