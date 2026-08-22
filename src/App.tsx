@@ -11,6 +11,7 @@ import CreateTransportOption from './pages/CreateTransportOption'
 import CreateHarvest from './pages/CreateHarvest'
 import CreateDemand from './pages/CreateDemand'
 import ConfirmTransaction from './pages/ConfirmTransaction'
+import AdminUsers from './pages/AdminUsers'
 
 function App() {
   return (
@@ -24,6 +25,14 @@ function App() {
               element={
                 <RequireRole role="admin">
                   <Overview />
+                </RequireRole>
+              }
+            />
+            <Route
+              path="admin/users"
+              element={
+                <RequireRole role="admin">
+                  <AdminUsers />
                 </RequireRole>
               }
             />

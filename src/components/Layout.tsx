@@ -1,16 +1,15 @@
-import { Link, Outlet } from 'react-router-dom'
-import { Sprout, LogOut, Sparkles } from 'lucide-react'
-import { useAuth, homeFor, type Role } from '../lib/AuthContext'
+import { Link, Outlet, useLocation } from 'react-router-dom'
+import { Sprout, LogOut, Sparkles, LayoutGrid, Users } from 'lucide-react'
+import { useAuth, homeFor, ROLE_LABEL } from '../lib/AuthContext'
 
-const ROLE_LABEL: Record<Role, string> = {
-  farmer: 'Farmer',
-  shop: 'Shopkeeper',
-  transport: 'Transport',
-  admin: 'Admin',
-}
+const ADMIN_NAV = [
+  { to: '/', label: 'Analytics', icon: LayoutGrid, exact: true },
+  { to: '/admin/users', label: 'People', icon: Users, exact: false },
+]
 
 export default function Layout() {
   const { profile, signOut } = useAuth()
+  const location = useLocation()
 
   return (
     <div className="flex min-h-screen bg-sand-50 text-sand-900">
@@ -29,10 +28,37 @@ export default function Layout() {
           <div className="mb-6 rounded-lg bg-sand-100 px-3 py-2.5">
             <div className="flex items-center gap-1.5 text-xs font-semibold text-sand-700">
               <Sparkles size={12} className="text-brand-500" />
-              {ROLE_LABEL[profile.role]} account
+              {profile.display_name || ROLE_LABEL[profile.role]}
             </div>
-            <div className="mt-0.5 truncate text-[11px] text-sand-500">{profile.email}</div>
+            <div className="mt-0.5 truncate text-[11px] text-sand-500">
+              {ROLE_LABEL[profile.role]} · {profile.email}
+            </div>
           </div>
+        )}
+
+        {profile?.role === 'admin' && (
+          <nav className="flex flex-col gap-1">
+            {ADMIN_NAV.map((item) => {
+              const isActive = item.exact
+                ? location.pathname === item.to
+                : location.pathname.startsWith(item.to)
+              const Icon = item.icon
+              return (
+                <Link
+                  key={item.to}
+                  to={item.to}
+                  className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition ${
+                    isActive
+                      ? 'bg-brand-50 text-brand-700'
+                      : 'text-sand-600 hover:bg-sand-100 hover:text-sand-900'
+                  }`}
+                >
+                  <Icon size={16} />
+                  {item.label}
+                </Link>
+              )
+            })}
+          </nav>
         )}
 
         <button

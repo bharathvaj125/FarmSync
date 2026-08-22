@@ -407,6 +407,7 @@ export function findCollectiveBuyingOpportunities(
     )
     const pooledDemand: DemandRequest = {
       id: `pooled:${buyers.map((b) => b.id).join(',')}`,
+      owner_id: null, // synthetic: a pooled group has no single owner
       buyer_name: `${buyers.length} pooled buyers`,
       crop: buyers[0].crop,
       quantity_kg: combinedQty,

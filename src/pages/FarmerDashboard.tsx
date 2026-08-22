@@ -7,9 +7,11 @@ import { inr, inrPerKg, kg } from '../lib/format'
 import AllocationBar from '../components/AllocationBar'
 import MutualProfitCard from '../components/MutualProfitCard'
 import WhatIfPanel, { DEFAULT_WHAT_IF, isWhatIfActive, type WhatIfState } from '../components/WhatIfPanel'
+import { useAuth } from '../lib/AuthContext'
 import type { Allocation, DemandRequest, HarvestOffer, TransportOption } from '../lib/types'
 
 export default function FarmerDashboard() {
+  const { profile } = useAuth()
   const [harvests, setHarvests] = useState<HarvestOffer[]>([])
   const [demands, setDemands] = useState<DemandRequest[]>([])
   const [transport, setTransport] = useState<TransportOption[]>([])
@@ -44,10 +46,16 @@ export default function FarmerDashboard() {
       </Centered>
     )
   }
-  if (harvests.length === 0) {
+  // Only this farmer's own harvests get a panel. The full `harvests` list
+  // still feeds the allocator below, because a recommendation is only
+  // correct if it accounts for every other farmer competing for the same
+  // buyers and trucks -- you just don't get to see or manage their rows.
+  const myHarvests = harvests.filter((h) => h.owner_id === profile?.id)
+
+  if (myHarvests.length === 0) {
     return (
       <Centered>
-        <p className="mb-3">No harvest offers yet.</p>
+        <p className="mb-3">You haven't entered a harvest yet.</p>
         <Link
           to="/farmer/new"
           className="inline-flex items-center gap-1.5 rounded-md bg-brand-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-brand-700"
@@ -62,7 +70,9 @@ export default function FarmerDashboard() {
     <main className="mx-auto max-w-3xl space-y-8 px-8 py-10">
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="font-display text-2xl font-bold text-sand-900">Farmer dashboard</h1>
+          <h1 className="font-display text-2xl font-bold text-sand-900">
+            {profile?.display_name || 'Farmer dashboard'}
+          </h1>
           <p className="mt-1 text-sm text-sand-500">Recommended buyers, ranked by expected net realization.</p>
         </div>
         <Link
@@ -72,11 +82,11 @@ export default function FarmerDashboard() {
           <Plus size={14} /> Add harvest
         </Link>
       </div>
-      {harvests.map((harvest, i) => (
+      {myHarvests.map((harvest) => (
         <HarvestPanel
           key={harvest.id}
           harvest={harvest}
-          harvestIndex={i}
+          harvestIndex={harvests.findIndex((h) => h.id === harvest.id)}
           harvests={harvests}
           demands={demands}
           transport={transport}

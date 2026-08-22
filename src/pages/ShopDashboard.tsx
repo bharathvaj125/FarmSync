@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase'
 import { findCollectiveBuyingOpportunities, rankSuppliersForDemand } from '../lib/scoring'
 import { inr, inrPerKg, kg } from '../lib/format'
 import CollectiveBuyingPanel from '../components/CollectiveBuyingPanel'
+import { useAuth } from '../lib/AuthContext'
 import type { CandidateDeal, DemandRequest, HarvestOffer, TransportOption } from '../lib/types'
 
 export default function ShopDashboard() {
@@ -35,19 +36,6 @@ export default function ShopDashboard() {
 
   if (loading) return <Centered>Loading FarmSync…</Centered>
   if (error) return <Centered>Failed to load: {error}</Centered>
-  if (demands.length === 0) {
-    return (
-      <Centered>
-        <p className="mb-3">No demand requests yet.</p>
-        <Link
-          to="/shop/new"
-          className="inline-flex items-center gap-1.5 rounded-md bg-channel-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-channel-700"
-        >
-          <Plus size={14} /> Enter your demand
-        </Link>
-      </Centered>
-    )
-  }
 
   return <ShopDashboardBody demands={demands} harvests={harvests} transport={transport} />
 }
@@ -61,16 +49,42 @@ function ShopDashboardBody({
   harvests: HarvestOffer[]
   transport: TransportOption[]
 }) {
+  const { profile } = useAuth()
+
+  // Only this shop's own demand requests are shown. `demands` (all of
+  // them) still feeds collective-buying detection, since pooling only
+  // means anything when it can see the other buyers in your zone.
+  const myDemands = demands.filter((d) => d.owner_id === profile?.id)
+
   const opportunities = useMemo(
-    () => findCollectiveBuyingOpportunities(harvests, demands, transport),
-    [harvests, demands, transport],
+    () =>
+      findCollectiveBuyingOpportunities(harvests, demands, transport).filter((opp) =>
+        opp.buyers.some((b) => b.owner_id === profile?.id),
+      ),
+    [harvests, demands, transport, profile?.id],
   )
+
+  if (myDemands.length === 0) {
+    return (
+      <Centered>
+        <p className="mb-3">You haven't entered a demand request yet.</p>
+        <Link
+          to="/shop/new"
+          className="inline-flex items-center gap-1.5 rounded-md bg-channel-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-channel-700"
+        >
+          <Plus size={14} /> Enter your demand
+        </Link>
+      </Centered>
+    )
+  }
 
   return (
     <main className="mx-auto max-w-3xl space-y-8 px-8 py-10">
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="font-display text-2xl font-bold text-sand-900">Shop dashboard</h1>
+          <h1 className="font-display text-2xl font-bold text-sand-900">
+            {profile?.display_name || 'Shop dashboard'}
+          </h1>
           <p className="mt-1 text-sm text-sand-500">
             Ranked suppliers by expected landed cost, not quoted price.
           </p>
@@ -83,7 +97,7 @@ function ShopDashboardBody({
         </Link>
       </div>
       <CollectiveBuyingPanel opportunities={opportunities} />
-      {demands.map((demand) => (
+      {myDemands.map((demand) => (
         <DemandPanel key={demand.id} demand={demand} harvests={harvests} transport={transport} />
       ))}
     </main>

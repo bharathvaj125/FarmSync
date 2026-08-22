@@ -7,6 +7,7 @@ export type Role = 'farmer' | 'shop' | 'transport' | 'admin'
 export interface Profile {
   id: string
   email: string
+  display_name: string
   role: Role
 }
 
@@ -83,4 +84,11 @@ export function homeFor(role: Role): string {
     case 'admin':
       return '/'
   }
+}
+
+export const ROLE_LABEL: Record<Role, string> = {
+  farmer: 'Farmer',
+  shop: 'Shopkeeper',
+  transport: 'Transport',
+  admin: 'Admin',
 }

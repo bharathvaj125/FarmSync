@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { useAuth } from '../lib/AuthContext'
 
 export default function CreateDemand() {
   const navigate = useNavigate()
+  const { profile } = useAuth()
   const [form, setForm] = useState({
-    buyer_name: '',
     crop: 'Tomato',
     quantity_kg: '',
     required_in_days: '',
@@ -22,7 +23,8 @@ export default function CreateDemand() {
     setError(null)
 
     const { error: insertError } = await supabase.from('demand_requests').insert({
-      buyer_name: form.buyer_name,
+      owner_id: profile?.id,
+      buyer_name: profile?.display_name ?? '',
       crop: form.crop,
       quantity_kg: Number(form.quantity_kg),
       required_in_days: Number(form.required_in_days),
@@ -50,16 +52,9 @@ export default function CreateDemand() {
       </p>
 
       <form onSubmit={handleSubmit} className="space-y-4 rounded-2xl border border-sand-200 bg-white p-6">
-        <Field label="Your business name">
-          <input
-            required
-            type="text"
-            value={form.buyer_name}
-            onChange={(e) => setForm({ ...form, buyer_name: e.target.value })}
-            className="w-full rounded-md border border-sand-300 px-3 py-2 text-sm"
-            placeholder="e.g. Green Basket Store"
-          />
-        </Field>
+        <div className="rounded-lg bg-sand-50 px-3 py-2 text-xs text-sand-500">
+          Ordering as <span className="font-medium text-sand-800">{profile?.display_name}</span>
+        </div>
 
         <div className="grid grid-cols-2 gap-4">
           <Field label="Crop">

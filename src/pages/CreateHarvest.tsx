@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { useAuth } from '../lib/AuthContext'
 
 export default function CreateHarvest() {
   const navigate = useNavigate()
+  const { profile } = useAuth()
   const [form, setForm] = useState({
-    farmer_name: '',
     crop: 'Tomato',
     quantity_kg: '',
     harvest_days: '',
@@ -22,7 +23,8 @@ export default function CreateHarvest() {
     setError(null)
 
     const { error: insertError } = await supabase.from('harvest_offers').insert({
-      farmer_name: form.farmer_name,
+      owner_id: profile?.id,
+      farmer_name: profile?.display_name ?? '',
       crop: form.crop,
       quantity_kg: Number(form.quantity_kg),
       harvest_days: Number(form.harvest_days),
@@ -49,16 +51,9 @@ export default function CreateHarvest() {
       </p>
 
       <form onSubmit={handleSubmit} className="space-y-4 rounded-2xl border border-sand-200 bg-white p-6">
-        <Field label="Your name">
-          <input
-            required
-            type="text"
-            value={form.farmer_name}
-            onChange={(e) => setForm({ ...form, farmer_name: e.target.value })}
-            className="w-full rounded-md border border-sand-300 px-3 py-2 text-sm"
-            placeholder="e.g. Ravi Kumar"
-          />
-        </Field>
+        <div className="rounded-lg bg-sand-50 px-3 py-2 text-xs text-sand-500">
+          Listing as <span className="font-medium text-sand-800">{profile?.display_name}</span>
+        </div>
 
         <div className="grid grid-cols-2 gap-4">
           <Field label="Crop">

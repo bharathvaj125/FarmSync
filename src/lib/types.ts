@@ -1,5 +1,6 @@
 export interface HarvestOffer {
   id: string
+  owner_id: string | null
   farmer_name: string
   crop: string
   quantity_kg: number
@@ -11,6 +12,7 @@ export interface HarvestOffer {
 
 export interface DemandRequest {
   id: string
+  owner_id: string | null
   buyer_name: string
   crop: string
   quantity_kg: number
@@ -22,6 +24,7 @@ export interface DemandRequest {
 
 export interface TransportOption {
   id: string
+  owner_id: string | null
   label: string
   truck_owner_name: string
   origin_zone: string

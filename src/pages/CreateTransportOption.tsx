@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { useAuth } from '../lib/AuthContext'
 
 export default function CreateTransportOption() {
   const navigate = useNavigate()
+  const { profile } = useAuth()
   const [form, setForm] = useState({
-    truck_owner_name: '',
     origin_zone: 'Zone A',
     destination_zone: 'Zone A',
     capacity_kg: '',
@@ -27,7 +28,8 @@ export default function CreateTransportOption() {
 
     const { error: insertError } = await supabase.from('transport_options').insert({
       label,
-      truck_owner_name: form.truck_owner_name,
+      owner_id: profile?.id,
+      truck_owner_name: profile?.display_name ?? '',
       origin_zone: form.origin_zone,
       destination_zone: form.destination_zone,
       capacity_kg: Number(form.capacity_kg),
@@ -53,16 +55,9 @@ export default function CreateTransportOption() {
       </p>
 
       <form onSubmit={handleSubmit} className="space-y-4 rounded-2xl border border-sand-200 bg-white p-6">
-        <Field label="Operator name">
-          <input
-            required
-            type="text"
-            value={form.truck_owner_name}
-            onChange={(e) => setForm({ ...form, truck_owner_name: e.target.value })}
-            className="w-full rounded-md border border-sand-300 px-3 py-2 text-sm"
-            placeholder="e.g. Manoj Transport Co."
-          />
-        </Field>
+        <div className="rounded-lg bg-sand-50 px-3 py-2 text-xs text-sand-500">
+          Listing as <span className="font-medium text-sand-800">{profile?.display_name}</span>
+        </div>
 
         <div className="grid grid-cols-2 gap-4">
           <Field label="From zone">
