@@ -67,14 +67,18 @@ this tier makes that true.
       already decrements transport capacity (and demand quantity) across
       every harvest globally, so two deals can't over-claim the same
       truck's capacity.
-- [ ] **Transport data model upgrade.** Add `truck_owner_name` to
-      `transport_options`.
-- [ ] **`src/pages/TransportDashboard.tsx`.** A truck operator's view:
-      their routes/capacity, which confirmed deals (from the shared global
-      allocation) are using them, and utilization.
-- [ ] **`src/pages/CreateTransportOption.tsx`.** Form for a transport
-      provider to list a route, capacity, price, and reliability —
-      currently this only exists as seed SQL.
+- [x] **Transport data model upgrade.** `truck_owner_name` added to
+      `transport_options` (migration in `supabase/add_truck_owner.sql`,
+      applied to the live DB and folded into `schema.sql` for fresh
+      installs).
+- [x] **`src/pages/TransportDashboard.tsx`.** Operators grouped with their
+      routes; each route shows utilization %, which farmer→buyer deals
+      are riding it, and earnings — all derived from the same
+      `allocateAllHarvests()` global allocation the Farmer/Overview pages
+      use, so the three role views never disagree about what's confirmed.
+- [x] **`src/pages/CreateTransportOption.tsx`.** Form at `/transport/new`,
+      tested end-to-end (insert verified, then cleaned up test rows from
+      the live seed data).
 - [ ] **Collective buying / shared transport.** Detect multiple small
       demands in the same zone whose combined quantity fits one truck,
       and recommend pooling them — this is where "logistics" stops being a
