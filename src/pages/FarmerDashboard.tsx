@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { TrendingUp, AlertTriangle } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { allocateHarvest, whatIf } from '../lib/scoring'
@@ -71,13 +71,34 @@ function HarvestPanel({
   const [whatIfState, setWhatIfState] = useState<WhatIfState>(DEFAULT_WHAT_IF)
   const [allocation, setAllocation] = useState<Allocation | null>(null)
   const [baselineTopBuyerId, setBaselineTopBuyerId] = useState<string | null>(null)
+  const isFirstRun = useRef(true)
 
   useEffect(() => {
-    const base = allocateHarvest(harvest, demands, transport)
-    setBaselineTopBuyerId(base.deals[0]?.demandRequest.id ?? null)
+    function recompute() {
+      const base = allocateHarvest(harvest, demands, transport)
+      setBaselineTopBuyerId(base.deals[0]?.demandRequest.id ?? null)
 
-    const active = isWhatIfActive(whatIfState)
-    setAllocation(active ? whatIf(harvest, demands, transport, whatIfState) : base)
+      const active = isWhatIfActive(whatIfState)
+      setAllocation(active ? whatIf(harvest, demands, transport, whatIfState) : base)
+    }
+
+    // Compute immediately on first load so the page isn't blank, but
+    // debounce every subsequent recompute. A slider fires a change event
+    // on every pixel dragged -- without debouncing, every number, banner,
+    // and allocation-bar segment on the page was recalculating and
+    // repainting dozens of times a second while dragging, which is what
+    // made the page feel like it was fighting the user. The slider itself
+    // still tracks the cursor instantly (WhatIfPanel is controlled
+    // directly by whatIfState); only the downstream recommendation waits
+    // for a short pause before it settles.
+    if (isFirstRun.current) {
+      isFirstRun.current = false
+      recompute()
+      return
+    }
+
+    const timer = setTimeout(recompute, 200)
+    return () => clearTimeout(timer)
   }, [harvest, demands, transport, whatIfState])
 
   if (!allocation) return null
