@@ -53,6 +53,15 @@
   color-scheme: dark;
 }
 
+/* Native <select> dropdown popups don't reliably pick up :root's
+   color-scheme in every browser -- explicit colors here are the
+   belt-and-braces fix so the popup list isn't a light-mode leftover. */
+select,
+option {
+  background-color: var(--color-sand-100);
+  color: var(--color-sand-900);
+}
+
 body {
   margin: 0;
   background: var(--color-sand-50);
