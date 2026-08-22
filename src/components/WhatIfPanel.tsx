@@ -60,37 +60,29 @@ export default function WhatIfPanel({
 
       <div className="space-y-4">
         <div>
-          <label className="mb-1 flex justify-between text-xs font-medium text-sand-600">
-            <span>Change buyer price</span>
-            <span className="tabular text-channel-700">
-              {value.priceDelta > 0 ? '+' : ''}
-              {value.priceDelta}/kg
-            </span>
-          </label>
-          <div className="flex gap-2">
-            <select
-              className="w-1/2 rounded-md border border-sand-300 bg-white px-2 py-1.5 text-xs"
-              value={value.demandId}
-              onChange={(e) => onChange({ ...value, demandId: e.target.value })}
-            >
-              <option value="">Select buyer…</option>
-              {demands.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.buyer_name}
-                </option>
-              ))}
-            </select>
-            <input
-              type="range"
-              min={-10}
-              max={10}
-              step={0.5}
-              value={value.priceDelta}
-              disabled={!value.demandId}
-              onChange={(e) => onChange({ ...value, priceDelta: Number(e.target.value) })}
-              className="w-1/2 accent-channel-600 disabled:opacity-40"
-            />
-          </div>
+          <label className="mb-1 block text-xs font-medium text-sand-600">Change buyer price</label>
+          <select
+            className="mb-2 w-full rounded-md border border-sand-300 bg-white px-2 py-1.5 text-xs"
+            value={value.demandId}
+            onChange={(e) => onChange({ ...value, demandId: e.target.value })}
+          >
+            <option value="">Select buyer…</option>
+            {demands.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.buyer_name}
+              </option>
+            ))}
+          </select>
+          <Stepper
+            label=""
+            value={value.priceDelta}
+            min={-10}
+            max={10}
+            step={0.5}
+            suffix="/kg"
+            disabled={!value.demandId}
+            onChange={(delta) => onChange({ ...value, priceDelta: delta })}
+          />
         </div>
 
         <SliderRow
@@ -176,6 +168,7 @@ function Stepper({
   step,
   suffix,
   onChange,
+  disabled,
 }: {
   label: string
   value: number
@@ -184,43 +177,45 @@ function Stepper({
   step: number
   suffix: string
   onChange: (v: number) => void
+  disabled?: boolean
 }) {
   const clamp = (v: number) => Math.min(max, Math.max(min, v))
 
   return (
     <div>
-      <label className="mb-1 block text-xs font-medium text-sand-600">{label}</label>
+      {label && <label className="mb-1 block text-xs font-medium text-sand-600">{label}</label>}
       <div className="flex items-center gap-2">
         <button
           type="button"
-          aria-label={`Decrease ${label}`}
+          aria-label={`Decrease ${label || suffix}`}
           onClick={() => onChange(clamp(value - step))}
           className="flex h-7 w-7 flex-none items-center justify-center rounded-md border border-sand-300 bg-white text-sand-600 hover:bg-sand-100 disabled:opacity-40"
-          disabled={value <= min}
+          disabled={disabled || value <= min}
         >
           <Minus size={12} />
         </button>
-        <div className="flex flex-1 items-center gap-1.5 rounded-md border border-sand-300 bg-white px-2.5 py-1.5">
+        <div className="flex flex-1 items-center gap-1.5 rounded-md border border-sand-300 bg-white px-2.5 py-1.5 disabled:opacity-40">
           <input
             type="number"
             value={value}
             min={min}
             max={max}
+            disabled={disabled}
             onChange={(e) => {
               if (e.target.value === '') return
               const n = Number(e.target.value)
               if (!Number.isNaN(n)) onChange(clamp(n))
             }}
-            className="w-full bg-transparent text-right text-xs tabular outline-none [-moz-appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+            className="w-full bg-transparent text-right text-xs tabular outline-none disabled:opacity-40 [-moz-appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
           />
           <span className="flex-none text-xs text-sand-400">{suffix}</span>
         </div>
         <button
           type="button"
-          aria-label={`Increase ${label}`}
+          aria-label={`Increase ${label || suffix}`}
           onClick={() => onChange(clamp(value + step))}
           className="flex h-7 w-7 flex-none items-center justify-center rounded-md border border-sand-300 bg-white text-sand-600 hover:bg-sand-100 disabled:opacity-40"
-          disabled={value >= max}
+          disabled={disabled || value >= max}
         >
           <Plus size={12} />
         </button>
