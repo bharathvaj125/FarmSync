@@ -120,7 +120,6 @@ export default function CreateHarvest() {
       </p>
 
       <div className="mb-6 space-y-4">
-        <SuggestionPanel suggestion={suggestion} quantityEntered={!!Number(form.quantity_kg)} />
         <NearbyDemandPanel crop={form.crop} loading={demandLoading} byZone={demandByZone} total={totalDemand} />
         <WeatherPanel zone={form.zone} loading={weatherLoading} error={weatherError} forecast={forecast} />
       </div>
@@ -177,6 +176,8 @@ export default function CreateHarvest() {
             />
           </Field>
         </div>
+
+        <SuggestionPanel suggestion={suggestion} quantityEntered={!!Number(form.quantity_kg)} />
 
         <div className="grid grid-cols-2 gap-4">
           <Field label="Zone">
@@ -241,7 +242,7 @@ function SuggestionPanel({
 
       {!quantityEntered || !suggestion ? (
         <p className="text-xs text-sand-400">
-          Enter a quantity and "ready in days" below to see a suggestion, based on real current demand and
+          Fill in quantity and "ready in days" above to see a suggestion, based on real current demand and
           the real forecast for your zone.
         </p>
       ) : (
