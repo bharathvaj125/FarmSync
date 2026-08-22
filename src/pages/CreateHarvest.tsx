@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { CloudRain, Thermometer, Users, Gauge } from 'lucide-react'
+import { CloudRain, Thermometer, Users, Gauge, ClipboardCheck, Plus } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/AuthContext'
 import { fetchWeatherForecast, ZONES, type DailyWeather } from '../lib/weather'
 import { computeHarvestSuggestion, type HarvestSuggestion } from '../lib/harvestSuggestion'
+import type { HarvestLog } from '../lib/types'
 
 export default function CreateHarvest() {
   const navigate = useNavigate()
@@ -120,6 +121,7 @@ export default function CreateHarvest() {
       <div className="mb-6 space-y-4">
         <NearbyDemandPanel crop={form.crop} loading={demandLoading} byZone={demandByZone} total={totalDemand} />
         <WeatherPanel zone={form.zone} loading={weatherLoading} error={weatherError} forecast={forecast} />
+        <HarvestLogPanel crop={form.crop} zone={form.zone} />
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4 rounded-2xl border border-sand-200 bg-sand-100 p-6">
@@ -366,6 +368,153 @@ function WeatherPanel({
             </div>
           ))}
         </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Same shape and purpose as the shop's sales log (CreateDemand.tsx): a
+ * recurring date-range log, not a single number. Produce like tomatoes
+ * gets picked in rounds over weeks, not in one event, so this captures
+ * what actually happened over time -- the raw material a future
+ * weather-to-yield model needs. No forecast shown here yet (unlike the
+ * shop's version) since that model doesn't exist until this data has
+ * accumulated across many farmers and seasons -- see the roadmap.
+ */
+function HarvestLogPanel({ crop, zone }: { crop: string; zone: string }) {
+  const { profile } = useAuth()
+  const [history, setHistory] = useState<HarvestLog[]>([])
+  const [loading, setLoading] = useState(true)
+  const [periodStart, setPeriodStart] = useState('')
+  const [periodEnd, setPeriodEnd] = useState('')
+  const [quantity, setQuantity] = useState('')
+  const [adding, setAdding] = useState(false)
+  const [rangeError, setRangeError] = useState<string | null>(null)
+
+  // Local date components, not .toISOString() -- that converts to UTC,
+  // the wrong calendar day for anyone east of UTC (e.g. IST) part of the day.
+  const formatLocal = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  const today = formatLocal(new Date())
+
+  async function load() {
+    if (!profile) return
+    const { data } = await supabase
+      .from('harvest_logs')
+      .select('*')
+      .eq('owner_id', profile.id)
+      .eq('crop', crop)
+      .order('period_start', { ascending: true })
+    setHistory((data as HarvestLog[]) ?? [])
+    setLoading(false)
+  }
+
+  useEffect(() => {
+    setLoading(true)
+    load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [crop, profile?.id])
+
+  async function handleAdd(e: React.FormEvent) {
+    e.preventDefault()
+    setRangeError(null)
+    if (!profile || !quantity || !periodStart || !periodEnd) return
+    if (periodEnd < periodStart) {
+      setRangeError('End date must be on or after the start date.')
+      return
+    }
+    setAdding(true)
+    const { error: insertError } = await supabase.from('harvest_logs').insert({
+      owner_id: profile.id,
+      crop,
+      zone,
+      period_start: periodStart,
+      period_end: periodEnd,
+      quantity_kg: Number(quantity),
+    })
+    if (insertError) {
+      setRangeError(insertError.message)
+      setAdding(false)
+      return
+    }
+    setPeriodStart('')
+    setPeriodEnd('')
+    setQuantity('')
+    setAdding(false)
+    load()
+  }
+
+  return (
+    <div className="rounded-xl border border-sand-300 bg-sand-100 p-4">
+      <div className="mb-2 flex items-center gap-2">
+        <ClipboardCheck size={14} className="text-sand-500" />
+        <h3 className="font-display text-xs font-semibold text-sand-900">Picking log — {crop}</h3>
+      </div>
+      <p className="mb-3 text-xs text-sand-500">
+        Log what you actually picked over past date ranges — this is what makes real yield
+        prediction possible later, once enough of these build up across seasons. Doesn't affect
+        this listing.
+      </p>
+
+      <form onSubmit={handleAdd} className="mb-2 flex flex-wrap gap-2">
+        <input
+          required
+          type="date"
+          value={periodStart}
+          max={today}
+          onChange={(e) => setPeriodStart(e.target.value)}
+          className="w-36 flex-none rounded-md border border-sand-300 bg-sand-50 px-2 py-1.5 text-xs"
+          aria-label="Period start"
+        />
+        <span className="self-center text-xs text-sand-400">to</span>
+        <input
+          required
+          type="date"
+          value={periodEnd}
+          min={periodStart || undefined}
+          max={today}
+          onChange={(e) => setPeriodEnd(e.target.value)}
+          className="w-36 flex-none rounded-md border border-sand-300 bg-sand-50 px-2 py-1.5 text-xs"
+          aria-label="Period end"
+        />
+        <input
+          required
+          type="number"
+          min="1"
+          value={quantity}
+          onChange={(e) => setQuantity(e.target.value)}
+          placeholder="kg picked"
+          className="flex-1 rounded-md border border-sand-300 bg-sand-50 px-2 py-1.5 text-xs tabular"
+        />
+        <button
+          type="submit"
+          disabled={adding}
+          className="flex flex-none items-center gap-1 rounded-md bg-sand-300 px-3 py-1.5 text-xs font-medium text-sand-900 hover:bg-sand-400 disabled:opacity-50"
+        >
+          <Plus size={12} /> Add
+        </button>
+      </form>
+      {rangeError && <p className="mb-2 text-xs text-red-600">{rangeError}</p>}
+
+      {!loading && history.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {history.map((h) => {
+            const rangeLabel =
+              h.period_start === h.period_end ? h.period_start : `${h.period_start} → ${h.period_end}`
+            return (
+              <span
+                key={h.id}
+                className="rounded-full border border-sand-300 bg-sand-50 px-2 py-0.5 text-[11px] text-sand-600"
+              >
+                {rangeLabel}: <span className="tabular font-medium text-sand-800">{h.quantity_kg}kg</span>
+              </span>
+            )
+          })}
+        </div>
+      )}
+      {!loading && history.length === 0 && (
+        <p className="text-xs text-sand-400">No picking history logged yet for {crop}.</p>
       )}
     </div>
   )

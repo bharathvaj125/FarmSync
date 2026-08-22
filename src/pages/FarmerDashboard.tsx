@@ -10,7 +10,6 @@ import AllocationBar from '../components/AllocationBar'
 import MutualProfitCard from '../components/MutualProfitCard'
 import IncomingRequestsPanel from '../components/IncomingRequestsPanel'
 import ConfirmedDealsPanel, { type ConfirmedDeal } from '../components/ConfirmedDealsPanel'
-import HarvestOutcomePanel from '../components/HarvestOutcomePanel'
 import WhatIfPanel, { DEFAULT_WHAT_IF, isWhatIfActive, type WhatIfState } from '../components/WhatIfPanel'
 import { useAuth } from '../lib/AuthContext'
 import type { Allocation, DealRequest, DemandRequest, HarvestOffer, Transaction, TransportOption } from '../lib/types'
@@ -187,7 +186,6 @@ export default function FarmerDashboard() {
         </div>
       )}
       <IncomingRequestsPanel requests={incomingRequests} viewerRole="farmer" onRespond={load} />
-      <HarvestOutcomePanel harvests={allMyHarvests} onLogged={load} />
       <ConfirmedDealsPanel deals={myConfirmedDeals} viewerRole="farmer" />
       <div className="flex items-start justify-between">
         <div>

@@ -9,9 +9,21 @@ export interface HarvestOffer {
   quality_grade: string
   minimum_price: number
   created_at: string
-  planned_quantity_kg: number // frozen at creation -- never mutated after
-  actual_yield_kg: number | null
-  outcome_logged_at: string | null
+}
+
+// A farmer's log of what they actually picked over a date range -- same
+// shape as SalesRecord (forecasting.ts), deliberately: produce is picked
+// in rounds over weeks, not as one event, so this is a recurring log, not
+// a single planned-vs-actual number tied to one listing.
+export interface HarvestLog {
+  id: string
+  owner_id: string | null
+  crop: string
+  zone: string
+  period_start: string
+  period_end: string
+  quantity_kg: number
+  created_at: string
 }
 
 export interface DemandRequest {
