@@ -10,6 +10,7 @@ import AllocationBar from '../components/AllocationBar'
 import MutualProfitCard from '../components/MutualProfitCard'
 import IncomingRequestsPanel from '../components/IncomingRequestsPanel'
 import ConfirmedDealsPanel, { type ConfirmedDeal } from '../components/ConfirmedDealsPanel'
+import HarvestOutcomePanel from '../components/HarvestOutcomePanel'
 import WhatIfPanel, { DEFAULT_WHAT_IF, isWhatIfActive, type WhatIfState } from '../components/WhatIfPanel'
 import { useAuth } from '../lib/AuthContext'
 import type { Allocation, DealRequest, DemandRequest, HarvestOffer, Transaction, TransportOption } from '../lib/types'
@@ -129,8 +130,9 @@ export default function FarmerDashboard() {
   // (quantity_kg driven to 0 by confirm_transaction) has nothing left to
   // recommend against, and showing it as "ready in N days, 0kg" reads as
   // broken rather than as the success it actually is.
-  const allMyHarvestIds = new Set(harvests.filter((h) => h.owner_id === profile?.id).map((h) => h.id))
-  const myHarvests = harvests.filter((h) => h.owner_id === profile?.id && h.quantity_kg > 0)
+  const allMyHarvests = harvests.filter((h) => h.owner_id === profile?.id)
+  const allMyHarvestIds = new Set(allMyHarvests.map((h) => h.id))
+  const myHarvests = allMyHarvests.filter((h) => h.quantity_kg > 0)
 
   // Requests a shop sent targeting one of my harvests -- these need my
   // response before anything is finalized. Matched against EVERY harvest
@@ -185,6 +187,7 @@ export default function FarmerDashboard() {
         </div>
       )}
       <IncomingRequestsPanel requests={incomingRequests} viewerRole="farmer" onRespond={load} />
+      <HarvestOutcomePanel harvests={allMyHarvests} onLogged={load} />
       <ConfirmedDealsPanel deals={myConfirmedDeals} viewerRole="farmer" />
       <div className="flex items-start justify-between">
         <div>

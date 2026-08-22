@@ -3,11 +3,15 @@ export interface HarvestOffer {
   owner_id: string | null
   farmer_name: string
   crop: string
-  quantity_kg: number
+  quantity_kg: number // remaining -- decremented as deals close
   harvest_days: number
   zone: string
   quality_grade: string
   minimum_price: number
+  created_at: string
+  planned_quantity_kg: number // frozen at creation -- never mutated after
+  actual_yield_kg: number | null
+  outcome_logged_at: string | null
 }
 
 export interface DemandRequest {
