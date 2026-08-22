@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Landmark } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { Landmark, Plus, HandCoins } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { findCollectiveBuyingOpportunities, rankSuppliersForDemand } from '../lib/scoring'
 import { inr, inrPerKg, kg } from '../lib/format'
@@ -34,7 +35,19 @@ export default function ShopDashboard() {
 
   if (loading) return <Centered>Loading FarmSync…</Centered>
   if (error) return <Centered>Failed to load: {error}</Centered>
-  if (demands.length === 0) return <Centered>No demand requests yet.</Centered>
+  if (demands.length === 0) {
+    return (
+      <Centered>
+        <p className="mb-3">No demand requests yet.</p>
+        <Link
+          to="/shop/new"
+          className="inline-flex items-center gap-1.5 rounded-md bg-channel-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-channel-700"
+        >
+          <Plus size={14} /> Enter your demand
+        </Link>
+      </Centered>
+    )
+  }
 
   return <ShopDashboardBody demands={demands} harvests={harvests} transport={transport} />
 }
@@ -55,9 +68,19 @@ function ShopDashboardBody({
 
   return (
     <main className="mx-auto max-w-3xl space-y-8 px-8 py-10">
-      <div>
-        <h1 className="font-display text-2xl font-bold text-sand-900">Shop dashboard</h1>
-        <p className="mt-1 text-sm text-sand-500">Ranked suppliers by expected landed cost, not quoted price.</p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="font-display text-2xl font-bold text-sand-900">Shop dashboard</h1>
+          <p className="mt-1 text-sm text-sand-500">
+            Ranked suppliers by expected landed cost, not quoted price.
+          </p>
+        </div>
+        <Link
+          to="/shop/new"
+          className="flex flex-none items-center gap-1.5 rounded-lg bg-channel-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-channel-700"
+        >
+          <Plus size={14} /> Add demand
+        </Link>
       </div>
       <CollectiveBuyingPanel opportunities={opportunities} />
       {demands.map((demand) => (
@@ -168,6 +191,12 @@ function DemandPanel({
                 )}
               </div>
               <p className="mt-2 text-xs text-sand-400">{deal.explanation}</p>
+              <Link
+                to={`/confirm?harvest=${deal.harvestOffer.id}&demand=${deal.demandRequest.id}`}
+                className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-channel-700 hover:underline"
+              >
+                <HandCoins size={12} /> Confirm this deal
+              </Link>
             </div>
           )
         })}

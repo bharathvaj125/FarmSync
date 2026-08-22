@@ -79,10 +79,13 @@ this tier makes that true.
 - [x] **`src/pages/CreateTransportOption.tsx`.** Form at `/transport/new`,
       tested end-to-end (insert verified, then cleaned up test rows from
       the live seed data).
-- [ ] **Collective buying / shared transport.** Detect multiple small
-      demands in the same zone whose combined quantity fits one truck,
-      and recommend pooling them — this is where "logistics" stops being a
-      cost input and becomes its own optimization surface.
+- [x] **Collective buying / shared transport.** `findCollectiveBuyingOpportunities()`
+      groups demands by zone+crop and surfaces real computed savings when
+      one farmer+route can fully cover the pooled quantity in one
+      shipment. `CollectiveBuyingPanel.tsx` shown at the top of the shop
+      dashboard.
+
+**Tier 2 complete.**
 
 ---
 

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { TrendingUp, AlertTriangle } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { TrendingUp, AlertTriangle, Plus, HandCoins } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { allocateAllHarvests, allocateHarvest, availableResourcesFor, whatIf } from '../lib/scoring'
 import { inr, inrPerKg, kg } from '../lib/format'
@@ -44,14 +45,32 @@ export default function FarmerDashboard() {
     )
   }
   if (harvests.length === 0) {
-    return <Centered>No harvest offers yet. Run the seed data in supabase/schema.sql.</Centered>
+    return (
+      <Centered>
+        <p className="mb-3">No harvest offers yet.</p>
+        <Link
+          to="/farmer/new"
+          className="inline-flex items-center gap-1.5 rounded-md bg-brand-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-brand-700"
+        >
+          <Plus size={14} /> Enter your harvest
+        </Link>
+      </Centered>
+    )
   }
 
   return (
     <main className="mx-auto max-w-3xl space-y-8 px-8 py-10">
-      <div>
-        <h1 className="font-display text-2xl font-bold text-sand-900">Farmer dashboard</h1>
-        <p className="mt-1 text-sm text-sand-500">Recommended buyers, ranked by expected net realization.</p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="font-display text-2xl font-bold text-sand-900">Farmer dashboard</h1>
+          <p className="mt-1 text-sm text-sand-500">Recommended buyers, ranked by expected net realization.</p>
+        </div>
+        <Link
+          to="/farmer/new"
+          className="flex flex-none items-center gap-1.5 rounded-lg bg-brand-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-brand-700"
+        >
+          <Plus size={14} /> Add harvest
+        </Link>
       </div>
       {harvests.map((harvest, i) => (
         <HarvestPanel
@@ -217,6 +236,12 @@ function HarvestPanel({
               </span>
             </div>
             <p className="mt-2 text-xs text-sand-400">{deal.explanation}</p>
+            <Link
+              to={`/confirm?harvest=${deal.harvestOffer.id}&demand=${deal.demandRequest.id}`}
+              className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-brand-700 hover:underline"
+            >
+              <HandCoins size={12} /> Confirm this deal
+            </Link>
           </div>
         ))}
       </div>
