@@ -165,7 +165,7 @@ function SalesForecastPanel({
   const { profile } = useAuth()
   const [history, setHistory] = useState<SalesRecord[]>([])
   const [loading, setLoading] = useState(true)
-  const [periodLabel, setPeriodLabel] = useState('')
+  const [saleDate, setSaleDate] = useState('')
   const [quantity, setQuantity] = useState('')
   const [adding, setAdding] = useState(false)
 
@@ -176,7 +176,7 @@ function SalesForecastPanel({
       .select('*')
       .eq('owner_id', profile.id)
       .eq('crop', crop)
-      .order('created_at', { ascending: true })
+      .order('sale_date', { ascending: true })
     setHistory((data as SalesRecord[]) ?? [])
     setLoading(false)
   }
@@ -189,15 +189,15 @@ function SalesForecastPanel({
 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault()
-    if (!profile || !quantity) return
+    if (!profile || !quantity || !saleDate) return
     setAdding(true)
     await supabase.from('sales_history').insert({
       owner_id: profile.id,
       crop,
-      period_label: periodLabel || `Entry ${history.length + 1}`,
+      sale_date: saleDate,
       quantity_kg: Number(quantity),
     })
-    setPeriodLabel('')
+    setSaleDate('')
     setQuantity('')
     setAdding(false)
     load()
@@ -221,11 +221,11 @@ function SalesForecastPanel({
 
       <form onSubmit={handleAdd} className="mb-4 flex gap-2">
         <input
-          type="text"
-          value={periodLabel}
-          onChange={(e) => setPeriodLabel(e.target.value)}
-          placeholder="e.g. Week 1"
-          className="w-28 flex-none rounded-md border border-sand-300 bg-sand-100 px-2 py-1.5 text-xs"
+          required
+          type="date"
+          value={saleDate}
+          onChange={(e) => setSaleDate(e.target.value)}
+          className="w-36 flex-none rounded-md border border-sand-300 bg-sand-100 px-2 py-1.5 text-xs"
         />
         <input
           required
@@ -247,14 +247,25 @@ function SalesForecastPanel({
 
       {!loading && history.length > 0 && (
         <div className="mb-4 flex flex-wrap gap-1.5">
-          {history.map((h) => (
-            <span
-              key={h.id}
-              className="rounded-full border border-sand-300 bg-sand-100 px-2 py-0.5 text-[11px] text-sand-600"
-            >
-              {h.period_label}: <span className="tabular font-medium text-sand-800">{h.quantity_kg}kg</span>
-            </span>
-          ))}
+          {history.map((h) => {
+            const weekday = new Date(`${h.sale_date}T00:00:00`).toLocaleDateString('en-IN', {
+              weekday: 'short',
+            })
+            const isWeekendEntry = weekday === 'Sat' || weekday === 'Sun'
+            return (
+              <span
+                key={h.id}
+                className={`rounded-full border px-2 py-0.5 text-[11px] ${
+                  isWeekendEntry
+                    ? 'border-channel-200 bg-channel-50 text-channel-700'
+                    : 'border-sand-300 bg-sand-100 text-sand-600'
+                }`}
+              >
+                {h.sale_date} ({weekday}):{' '}
+                <span className="tabular font-medium text-sand-800">{h.quantity_kg}kg</span>
+              </span>
+            )
+          })}
         </div>
       )}
 
@@ -273,9 +284,10 @@ function SalesForecastPanel({
               {forecast.trend === 'increasing' && <TrendingUp size={13} className="text-brand-400" />}
               {forecast.trend === 'decreasing' && <TrendingDown size={13} className="text-amber-400" />}
               {forecast.trend === 'stable' && <Minus size={13} className="text-sand-400" />}
-              Predicted next order · trend {forecast.trend} · fit on {forecast.periodsUsed} periods
+              Trend {forecast.trend} · fit on {forecast.periodsUsed} entries
             </span>
           </div>
+
           <div className="mt-1.5 flex items-baseline justify-between">
             <span className="tabular font-display text-xl font-bold text-brand-700">
               {forecast.predictedQuantity}kg
@@ -288,6 +300,29 @@ function SalesForecastPanel({
               Use this
             </button>
           </div>
+
+          <p className="mt-2 text-[11px] leading-relaxed text-sand-500">
+            For{' '}
+            <span className="font-medium text-sand-700">
+              {forecast.targetDate}
+              {forecast.targetIsWeekend ? ' (weekend)' : ' (weekday)'}
+            </span>
+            {forecast.weekendAdjustmentApplied ? (
+              <>
+                {' '}
+                — adjusted{' '}
+                <span
+                  className={forecast.weekendAdjustmentKg >= 0 ? 'text-brand-400' : 'text-amber-400'}
+                >
+                  {forecast.weekendAdjustmentKg >= 0 ? '+' : ''}
+                  {forecast.weekendAdjustmentKg}kg
+                </span>{' '}
+                from your own {forecast.targetIsWeekend ? 'weekend' : 'weekday'} pattern.
+              </>
+            ) : (
+              <> — no {forecast.targetIsWeekend ? 'weekend' : 'weekday'} entries yet, so this is trend-only.</>
+            )}
+          </p>
         </div>
       )}
     </div>
