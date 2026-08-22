@@ -57,3 +57,30 @@ export interface Allocation {
   allocated_kg: number
   unallocated_kg: number
 }
+
+export type DealRequestStatus = 'pending' | 'accepted' | 'declined' | 'cancelled'
+
+// Snapshots the exact terms shown when the request was sent -- accepting
+// honors these numbers rather than whatever the live match would compute
+// today, since price/weather/etc. can shift between request and response.
+export interface DealRequest {
+  id: string
+  harvest_offer_id: string
+  demand_request_id: string
+  transport_option_id: string
+  quantity_kg: number
+  unit_price: number
+  transport_cost: number
+  spoilage_loss: number
+  risk_loss: number
+  weather_risk_loss: number
+  net_realization: number
+  landed_cost: number
+  score: number
+  requested_by: string | null
+  requested_by_role: 'farmer' | 'shop'
+  status: DealRequestStatus
+  transaction_id: string | null
+  created_at: string
+  responded_at: string | null
+}

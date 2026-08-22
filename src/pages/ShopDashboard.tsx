@@ -7,14 +7,16 @@ import { fetchWeatherForecast, ZONE_COORDINATES } from '../lib/weather'
 import { useLiveSync } from '../lib/useLiveSync'
 import { inr, inrPerKg, kg } from '../lib/format'
 import CollectiveBuyingPanel from '../components/CollectiveBuyingPanel'
+import IncomingRequestsPanel from '../components/IncomingRequestsPanel'
 import { useAuth } from '../lib/AuthContext'
-import type { CandidateDeal, DemandRequest, HarvestOffer, TransportOption } from '../lib/types'
+import type { CandidateDeal, DealRequest, DemandRequest, HarvestOffer, TransportOption } from '../lib/types'
 
 export default function ShopDashboard() {
   const { profile } = useAuth()
   const [demands, setDemands] = useState<DemandRequest[]>([])
   const [harvests, setHarvests] = useState<HarvestOffer[]>([])
   const [transport, setTransport] = useState<TransportOption[]>([])
+  const [dealRequests, setDealRequests] = useState<DealRequest[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   // Fetched once per page load and cached for every demand panel below --
@@ -28,10 +30,11 @@ export default function ShopDashboard() {
   }, [demands])
 
   async function load() {
-    const [d, h, t] = await Promise.all([
+    const [d, h, t, r] = await Promise.all([
       supabase.from('demand_requests').select('*').order('created_at'),
       supabase.from('harvest_offers').select('*').order('created_at'),
       supabase.from('transport_options').select('*').order('created_at'),
+      supabase.from('deal_requests').select('*').order('created_at'),
     ])
     if (d.error || h.error || t.error) {
       setError(d.error?.message ?? h.error?.message ?? t.error?.message ?? 'Unknown error')
@@ -39,6 +42,7 @@ export default function ShopDashboard() {
       setDemands(d.data as DemandRequest[])
       setHarvests(h.data as HarvestOffer[])
       setTransport(t.data as TransportOption[])
+      setDealRequests((r.data as DealRequest[]) ?? [])
     }
     setLoading(false)
   }
@@ -62,9 +66,10 @@ export default function ShopDashboard() {
   }, [])
 
   // Any confirmed deal anywhere on the platform changes remaining
-  // quantities, so this re-fetches all three live -- no manual refresh
-  // needed to see that a farmer's produce or a truck's capacity moved.
-  useLiveSync(['harvest_offers', 'demand_requests', 'transport_options'], load)
+  // quantities, so this re-fetches all four live -- no manual refresh
+  // needed to see that a farmer's produce or a truck's capacity moved, or
+  // that a new request came in.
+  useLiveSync(['harvest_offers', 'demand_requests', 'transport_options', 'deal_requests'], load)
 
   useEffect(() => {
     const channel = supabase
@@ -104,6 +109,8 @@ export default function ShopDashboard() {
       transport={transport}
       weatherByZone={weatherByZone}
       notification={notification}
+      dealRequests={dealRequests}
+      onRespond={load}
     />
   )
 }
@@ -114,12 +121,16 @@ function ShopDashboardBody({
   transport,
   weatherByZone,
   notification,
+  dealRequests,
+  onRespond,
 }: {
   demands: DemandRequest[]
   harvests: HarvestOffer[]
   transport: TransportOption[]
   weatherByZone: WeatherByZone
   notification: string | null
+  dealRequests: DealRequest[]
+  onRespond: () => void
 }) {
   const { profile } = useAuth()
 
@@ -127,6 +138,18 @@ function ShopDashboardBody({
   // them) still feeds collective-buying detection, since pooling only
   // means anything when it can see the other buyers in your zone.
   const myDemands = demands.filter((d) => d.owner_id === profile?.id)
+  const myDemandIds = new Set(myDemands.map((d) => d.id))
+
+  // Requests a farmer sent targeting one of my demands -- these need my
+  // response before anything is finalized.
+  const incomingRequests = dealRequests
+    .filter((r) => r.status === 'pending' && r.requested_by_role === 'farmer' && myDemandIds.has(r.demand_request_id))
+    .map((request) => {
+      const harvest = harvests.find((h) => h.id === request.harvest_offer_id)
+      const demand = demands.find((d) => d.id === request.demand_request_id)
+      return harvest && demand ? { request, harvest, demand } : null
+    })
+    .filter((x): x is { request: DealRequest; harvest: HarvestOffer; demand: DemandRequest } => x !== null)
 
   const opportunities = useMemo(
     () =>
@@ -158,6 +181,7 @@ function ShopDashboardBody({
           {notification}
         </div>
       )}
+      <IncomingRequestsPanel requests={incomingRequests} viewerRole="shop" onRespond={onRespond} />
       <div className="flex items-start justify-between">
         <div>
           <h1 className="font-display text-2xl font-bold text-sand-900">
@@ -182,6 +206,8 @@ function ShopDashboardBody({
           harvests={harvests}
           transport={transport}
           weatherByZone={weatherByZone}
+          dealRequests={dealRequests}
+          myProfileId={profile?.id ?? null}
         />
       ))}
     </main>
@@ -193,11 +219,15 @@ function DemandPanel({
   harvests,
   transport,
   weatherByZone,
+  dealRequests,
+  myProfileId,
 }: {
   demand: DemandRequest
   harvests: HarvestOffer[]
   transport: TransportOption[]
   weatherByZone: WeatherByZone
+  dealRequests: DealRequest[]
+  myProfileId: string | null
 }) {
   const [suppliers, setSuppliers] = useState<CandidateDeal[] | null>(null)
 
@@ -259,6 +289,13 @@ function DemandPanel({
           const savingsVsNext = nextBest
             ? (nextBest.landed_cost_per_kg - deal.landed_cost_per_kg) * deal.quantity_kg
             : null
+          const pending = dealRequests.find(
+            (r) =>
+              r.status === 'pending' &&
+              r.harvest_offer_id === deal.harvestOffer.id &&
+              r.demand_request_id === deal.demandRequest.id,
+          )
+          const isMine = pending && pending.requested_by === myProfileId
           return (
             <div key={deal.harvestOffer.id} className="rounded-lg border border-sand-200 p-4">
               <div className="flex items-baseline justify-between">
@@ -293,9 +330,16 @@ function DemandPanel({
               <p className="mt-2 text-xs text-sand-400">{deal.explanation}</p>
               <Link
                 to={`/confirm?harvest=${deal.harvestOffer.id}&demand=${deal.demandRequest.id}`}
-                className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-channel-700 hover:underline"
+                className={`mt-3 inline-flex items-center gap-1.5 text-xs font-medium hover:underline ${
+                  pending ? 'text-amber-400' : 'text-channel-700'
+                }`}
               >
-                <HandCoins size={12} /> Confirm this deal
+                <HandCoins size={12} />
+                {pending
+                  ? isMine
+                    ? 'Request sent — waiting for response'
+                    : 'Needs your response'
+                  : 'Request this deal'}
               </Link>
             </div>
           )

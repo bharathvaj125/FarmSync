@@ -8,15 +8,17 @@ import { useLiveSync } from '../lib/useLiveSync'
 import { inr, inrPerKg, kg } from '../lib/format'
 import AllocationBar from '../components/AllocationBar'
 import MutualProfitCard from '../components/MutualProfitCard'
+import IncomingRequestsPanel from '../components/IncomingRequestsPanel'
 import WhatIfPanel, { DEFAULT_WHAT_IF, isWhatIfActive, type WhatIfState } from '../components/WhatIfPanel'
 import { useAuth } from '../lib/AuthContext'
-import type { Allocation, DemandRequest, HarvestOffer, TransportOption } from '../lib/types'
+import type { Allocation, DealRequest, DemandRequest, HarvestOffer, TransportOption } from '../lib/types'
 
 export default function FarmerDashboard() {
   const { profile } = useAuth()
   const [harvests, setHarvests] = useState<HarvestOffer[]>([])
   const [demands, setDemands] = useState<DemandRequest[]>([])
   const [transport, setTransport] = useState<TransportOption[]>([])
+  const [dealRequests, setDealRequests] = useState<DealRequest[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   // Fetched once per page load and cached for every harvest panel below,
@@ -34,10 +36,11 @@ export default function FarmerDashboard() {
   }, [harvests])
 
   async function load() {
-    const [h, d, t] = await Promise.all([
+    const [h, d, t, r] = await Promise.all([
       supabase.from('harvest_offers').select('*').order('created_at'),
       supabase.from('demand_requests').select('*').order('created_at'),
       supabase.from('transport_options').select('*').order('created_at'),
+      supabase.from('deal_requests').select('*').order('created_at'),
     ])
     if (h.error || d.error || t.error) {
       setError(h.error?.message ?? d.error?.message ?? t.error?.message ?? 'Unknown error')
@@ -45,6 +48,7 @@ export default function FarmerDashboard() {
       setHarvests(h.data as HarvestOffer[])
       setDemands(d.data as DemandRequest[])
       setTransport(t.data as TransportOption[])
+      setDealRequests((r.data as DealRequest[]) ?? [])
     }
     setLoading(false)
   }
@@ -69,9 +73,10 @@ export default function FarmerDashboard() {
   }, [])
 
   // Any confirmed deal anywhere on the platform changes harvest/demand/
-  // transport remaining quantities, so this re-fetches all three live --
-  // no manual refresh needed to see that a buyer just bought your produce.
-  useLiveSync(['harvest_offers', 'demand_requests', 'transport_options'], load)
+  // transport remaining quantities, so this re-fetches all four live --
+  // no manual refresh needed to see that a buyer just bought your produce,
+  // or that a new request came in.
+  useLiveSync(['harvest_offers', 'demand_requests', 'transport_options', 'deal_requests'], load)
 
   // Separate subscription just for the "you got matched" banner -- only
   // fires when the new transaction actually belongs to one of my harvests.
@@ -117,6 +122,18 @@ export default function FarmerDashboard() {
   // correct if it accounts for every other farmer competing for the same
   // buyers and trucks -- you just don't get to see or manage their rows.
   const myHarvests = harvests.filter((h) => h.owner_id === profile?.id)
+  const myHarvestIds = new Set(myHarvests.map((h) => h.id))
+
+  // Requests a shop sent targeting one of my harvests -- these need my
+  // response before anything is finalized.
+  const incomingRequests = dealRequests
+    .filter((r) => r.status === 'pending' && r.requested_by_role === 'shop' && myHarvestIds.has(r.harvest_offer_id))
+    .map((request) => {
+      const harvest = harvests.find((h) => h.id === request.harvest_offer_id)
+      const demand = demands.find((d) => d.id === request.demand_request_id)
+      return harvest && demand ? { request, harvest, demand } : null
+    })
+    .filter((x): x is { request: DealRequest; harvest: HarvestOffer; demand: DemandRequest } => x !== null)
 
   if (myHarvests.length === 0) {
     return (
@@ -140,6 +157,7 @@ export default function FarmerDashboard() {
           {notification}
         </div>
       )}
+      <IncomingRequestsPanel requests={incomingRequests} viewerRole="farmer" onRespond={load} />
       <div className="flex items-start justify-between">
         <div>
           <h1 className="font-display text-2xl font-bold text-sand-900">
@@ -163,6 +181,8 @@ export default function FarmerDashboard() {
           demands={demands}
           transport={transport}
           weatherByZone={weatherByZone}
+          dealRequests={dealRequests}
+          myProfileId={profile?.id ?? null}
         />
       ))}
     </main>
@@ -176,6 +196,8 @@ function HarvestPanel({
   demands,
   transport,
   weatherByZone,
+  dealRequests,
+  myProfileId,
 }: {
   harvest: HarvestOffer
   harvestIndex: number
@@ -183,6 +205,8 @@ function HarvestPanel({
   demands: DemandRequest[]
   transport: TransportOption[]
   weatherByZone: WeatherByZone
+  dealRequests: DealRequest[]
+  myProfileId: string | null
 }) {
   // Every harvest's allocation is computed against the SAME pool of demand
   // and transport capacity as the platform's other farmers, with this
@@ -248,6 +272,12 @@ function HarvestPanel({
   const demandOrder = new Map(availableDemands.map((d, i) => [d.id, i]))
   const displayDeals = [...allocation.deals].sort(
     (a, b) => (demandOrder.get(a.demandRequest.id) ?? 0) - (demandOrder.get(b.demandRequest.id) ?? 0),
+  )
+
+  const pendingRequestFor = new Map(
+    dealRequests
+      .filter((r) => r.status === 'pending')
+      .map((r) => [`${r.harvest_offer_id}:${r.demand_request_id}`, r]),
   )
 
   return (
@@ -323,12 +353,25 @@ function HarvestPanel({
               </span>
             </div>
             <p className="mt-2 text-xs text-sand-400">{deal.explanation}</p>
-            <Link
-              to={`/confirm?harvest=${deal.harvestOffer.id}&demand=${deal.demandRequest.id}`}
-              className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-brand-700 hover:underline"
-            >
-              <HandCoins size={12} /> Confirm this deal
-            </Link>
+            {(() => {
+              const pending = pendingRequestFor.get(`${deal.harvestOffer.id}:${deal.demandRequest.id}`)
+              const isMine = pending && pending.requested_by === myProfileId
+              return (
+                <Link
+                  to={`/confirm?harvest=${deal.harvestOffer.id}&demand=${deal.demandRequest.id}`}
+                  className={`mt-3 inline-flex items-center gap-1.5 text-xs font-medium hover:underline ${
+                    pending ? 'text-amber-400' : 'text-brand-700'
+                  }`}
+                >
+                  <HandCoins size={12} />
+                  {pending
+                    ? isMine
+                      ? 'Request sent — waiting for response'
+                      : 'Needs your response'
+                    : 'Request this deal'}
+                </Link>
+              )
+            })()}
           </div>
         ))}
       </div>
