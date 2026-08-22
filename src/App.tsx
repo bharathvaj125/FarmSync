@@ -3,6 +3,8 @@ import Layout from './components/Layout'
 import Overview from './pages/Overview'
 import FarmerDashboard from './pages/FarmerDashboard'
 import ShopDashboard from './pages/ShopDashboard'
+import TransportDashboard from './pages/TransportDashboard'
+import CreateTransportOption from './pages/CreateTransportOption'
 
 function App() {
   return (
@@ -12,6 +14,8 @@ function App() {
           <Route index element={<Overview />} />
           <Route path="farmer" element={<FarmerDashboard />} />
           <Route path="shop" element={<ShopDashboard />} />
+          <Route path="transport" element={<TransportDashboard />} />
+          <Route path="transport/new" element={<CreateTransportOption />} />
         </Route>
       </Routes>
     </BrowserRouter>

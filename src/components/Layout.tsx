@@ -5,7 +5,7 @@ const NAV = [
   { to: '/', label: 'Overview', icon: LayoutGrid, end: true },
   { to: '/farmer', label: 'Farmer', icon: Sprout, end: false },
   { to: '/shop', label: 'Shopkeeper', icon: Store, end: false },
-  { to: '/transport', label: 'Transport', icon: Truck, end: false, disabled: true },
+  { to: '/transport', label: 'Transport', icon: Truck, end: false },
 ]
 
 export default function Layout() {
@@ -28,20 +28,6 @@ export default function Layout() {
           {NAV.map((item) => {
             const isActive = item.end ? location.pathname === item.to : location.pathname.startsWith(item.to)
             const Icon = item.icon
-            if (item.disabled) {
-              return (
-                <span
-                  key={item.to}
-                  className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-sand-400"
-                >
-                  <Icon size={16} />
-                  {item.label}
-                  <span className="ml-auto rounded-full bg-sand-100 px-1.5 py-0.5 text-[10px] font-medium text-sand-500">
-                    soon
-                  </span>
-                </span>
-              )
-            }
             return (
               <Link
                 key={item.to}

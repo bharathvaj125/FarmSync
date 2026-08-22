@@ -125,8 +125,7 @@ export default function Overview() {
             icon={Truck}
             title="Transport"
             description="List routes and capacity, see which confirmed deals you're carrying."
-            accent="sand"
-            disabled
+            accent="channel"
           />
         </div>
       </section>

@@ -62,21 +62,19 @@ The original docs treat transport as a data table feeding the cost
 formula. You want trucks to be a real third role with their own view —
 this tier makes that true.
 
-- [ ] **Transport data model upgrade.** Current `transport_options` table
-      is a static route price list. Add `truck_owner_name`, and change
-      `available_at` semantics to real availability windows instead of a
-      flat row, so a truck can be "claimed" by a confirmed transaction.
+- [x] **Capacity-aware allocation.** Done ahead of schedule as part of the
+      Tier 1 correctness fix — `allocateAllHarvests()` in `scoring.ts`
+      already decrements transport capacity (and demand quantity) across
+      every harvest globally, so two deals can't over-claim the same
+      truck's capacity.
+- [ ] **Transport data model upgrade.** Add `truck_owner_name` to
+      `transport_options`.
 - [ ] **`src/pages/TransportDashboard.tsx`.** A truck operator's view:
-      their routes/capacity, which confirmed transactions are assigned to
-      them, expected earnings.
+      their routes/capacity, which confirmed deals (from the shared global
+      allocation) are using them, and utilization.
 - [ ] **`src/pages/CreateTransportOption.tsx`.** Form for a transport
       provider to list a route, capacity, price, and reliability —
       currently this only exists as seed SQL.
-- [ ] **Capacity-aware allocation.** Right now `allocateHarvest()` treats
-      transport capacity as unlimited across multiple deals on the same
-      route. Once trucks are a claimable resource, the allocator needs to
-      decrement remaining capacity per transport option as deals are
-      assigned, so two large deals can't both claim the same truck.
 - [ ] **Collective buying / shared transport.** Detect multiple small
       demands in the same zone whose combined quantity fits one truck,
       and recommend pooling them — this is where "logistics" stops being a

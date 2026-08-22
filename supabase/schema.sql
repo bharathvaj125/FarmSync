@@ -28,6 +28,7 @@ create table demand_requests (
 create table transport_options (
   id uuid primary key default gen_random_uuid(),
   label text not null,                  -- e.g. "Mini truck - Zone A to Zone B"
+  truck_owner_name text not null default 'Unassigned',
   origin_zone text not null,
   destination_zone text not null,
   capacity_kg numeric not null,
@@ -73,12 +74,12 @@ insert into demand_requests (buyer_name, crop, quantity_kg, required_in_days, zo
 -- cost/capacity = transport cost per kg; distance and route reliability
 -- are deliberately steep past Zone B so the demo's "highest price loses"
 -- moment actually shows up in the numbers, not just the pitch.
-insert into transport_options (label, origin_zone, destination_zone, capacity_kg, cost, reliability_score) values
-('Mini truck - within Zone A', 'Zone A', 'Zone A', 800, 300, 0.97),
-('Pickup - Zone A to Zone B', 'Zone A', 'Zone B', 600, 900, 0.9),
-('Truck - Zone A to Zone C', 'Zone A', 'Zone C', 1000, 5000, 0.6),
-('Truck - Zone A to Zone D', 'Zone A', 'Zone D', 1000, 7000, 0.5),
-('Mini truck - within Zone B', 'Zone B', 'Zone B', 700, 250, 0.95),
-('Pickup - Zone B to Zone A', 'Zone B', 'Zone A', 700, 1200, 0.88),
-('Mini truck - within Zone C', 'Zone C', 'Zone C', 1200, 300, 0.9),
-('Truck - Zone C to Zone A', 'Zone C', 'Zone A', 1200, 5400, 0.65);
+insert into transport_options (label, truck_owner_name, origin_zone, destination_zone, capacity_kg, cost, reliability_score) values
+('Mini truck - within Zone A', 'Manoj Transport Co.', 'Zone A', 'Zone A', 800, 300, 0.97),
+('Pickup - Zone A to Zone B', 'Manoj Transport Co.', 'Zone A', 'Zone B', 600, 900, 0.9),
+('Truck - Zone A to Zone C', 'Iqbal Logistics', 'Zone A', 'Zone C', 1000, 5000, 0.6),
+('Truck - Zone A to Zone D', 'Iqbal Logistics', 'Zone A', 'Zone D', 1000, 7000, 0.5),
+('Mini truck - within Zone B', 'Devraj Carriers', 'Zone B', 'Zone B', 700, 250, 0.95),
+('Pickup - Zone B to Zone A', 'Devraj Carriers', 'Zone B', 'Zone A', 700, 1200, 0.88),
+('Mini truck - within Zone C', 'Nandhini Freight', 'Zone C', 'Zone C', 1200, 300, 0.9),
+('Truck - Zone C to Zone A', 'Nandhini Freight', 'Zone C', 'Zone A', 1200, 5400, 0.65);

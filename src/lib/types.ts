@@ -23,6 +23,7 @@ export interface DemandRequest {
 export interface TransportOption {
   id: string
   label: string
+  truck_owner_name: string
   origin_zone: string
   destination_zone: string
   capacity_kg: number
