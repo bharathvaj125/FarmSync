@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Brain, TrendingUp, TrendingDown, Minus, Plus } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/AuthContext'
-import { forecastNextWeek, forecastNextMonth, type ForecastResult, type SalesRecord } from '../lib/forecasting'
+import { forecastNextPeriod, type ForecastResult, type SalesRecord } from '../lib/forecasting'
 
 export default function CreateDemand() {
   const navigate = useNavigate()
@@ -176,8 +176,18 @@ function SalesForecastPanel({
   // Local date components, not .toISOString() -- that converts to UTC,
   // which is the wrong calendar day for anyone east of UTC (e.g. IST)
   // for part of the day.
-  const now = new Date()
-  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+  const formatLocal = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  const addLocalDays = (dateStr: string, days: number) => {
+    const d = new Date(`${dateStr}T00:00:00`)
+    d.setDate(d.getDate() + days)
+    return formatLocal(d)
+  }
+  const today = formatLocal(new Date())
+  const tomorrow = addLocalDays(today, 1)
+
+  const [predictFrom, setPredictFrom] = useState(tomorrow)
+  const [predictTo, setPredictTo] = useState(addLocalDays(tomorrow, 6))
 
   async function load() {
     if (!profile) return
@@ -206,13 +216,18 @@ function SalesForecastPanel({
       return
     }
     setAdding(true)
-    await supabase.from('sales_history').insert({
+    const { error: insertError } = await supabase.from('sales_history').insert({
       owner_id: profile.id,
       crop,
       period_start: periodStart,
       period_end: periodEnd,
       quantity_kg: Number(quantity),
     })
+    if (insertError) {
+      setRangeError(insertError.message)
+      setAdding(false)
+      return
+    }
     setPeriodStart('')
     setPeriodEnd('')
     setQuantity('')
@@ -220,8 +235,15 @@ function SalesForecastPanel({
     load()
   }
 
-  const weekForecast: ForecastResult | null = forecastNextWeek(history)
-  const monthForecast: ForecastResult | null = forecastNextMonth(history)
+  const customForecast: ForecastResult | null =
+    predictFrom && predictTo && predictTo >= predictFrom
+      ? forecastNextPeriod(history, predictFrom, predictTo)
+      : null
+
+  function applyPreset(days: number) {
+    setPredictFrom(tomorrow)
+    setPredictTo(addLocalDays(tomorrow, days - 1))
+  }
 
   return (
     <div className="rounded-2xl border border-brand-200 bg-brand-50/60 p-5">
@@ -302,84 +324,111 @@ function SalesForecastPanel({
         <p className="text-xs text-sand-400">Add one more entry to get a prediction (need at least 2).</p>
       )}
 
-      {(weekForecast || monthForecast) && (
+      {!loading && history.length >= 2 && (
         <div>
           <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-sand-500">
             Predicted demand — before you enter anything below
           </p>
-          <div className="grid gap-3 sm:grid-cols-2">
-            {weekForecast && (
-              <ForecastCard
-                label="Next week"
-                forecast={weekForecast}
-                onUseSuggestion={(qty) => onUseSuggestion(qty, 7)}
-              />
-            )}
-            {monthForecast && (
-              <ForecastCard
-                label="Next month"
-                forecast={monthForecast}
-                onUseSuggestion={(qty) => onUseSuggestion(qty, 30)}
-              />
-            )}
+
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <span className="text-xs text-sand-500">Buying from</span>
+            <input
+              type="date"
+              value={predictFrom}
+              min={today}
+              onChange={(e) => setPredictFrom(e.target.value)}
+              className="w-36 rounded-md border border-sand-300 bg-sand-100 px-2 py-1.5 text-xs"
+              aria-label="Predict from"
+            />
+            <span className="text-xs text-sand-500">to</span>
+            <input
+              type="date"
+              value={predictTo}
+              min={predictFrom || today}
+              onChange={(e) => setPredictTo(e.target.value)}
+              className="w-36 rounded-md border border-sand-300 bg-sand-100 px-2 py-1.5 text-xs"
+              aria-label="Predict to"
+            />
+            <button
+              type="button"
+              onClick={() => applyPreset(7)}
+              className="rounded-md border border-sand-300 px-2 py-1 text-[11px] font-medium text-sand-600 hover:bg-sand-100"
+            >
+              Next 7 days
+            </button>
+            <button
+              type="button"
+              onClick={() => applyPreset(30)}
+              className="rounded-md border border-sand-300 px-2 py-1 text-[11px] font-medium text-sand-600 hover:bg-sand-100"
+            >
+              Next 30 days
+            </button>
           </div>
+
+          {customForecast ? (
+            <div className="rounded-lg border border-brand-200 bg-sand-100 p-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-sand-800">
+                  {customForecast.targetStart} → {customForecast.targetEnd}
+                </span>
+                <span className="flex items-center gap-1 text-[11px] font-medium text-sand-500">
+                  {customForecast.trend === 'increasing' && (
+                    <TrendingUp size={12} className="text-brand-400" />
+                  )}
+                  {customForecast.trend === 'decreasing' && (
+                    <TrendingDown size={12} className="text-amber-400" />
+                  )}
+                  {customForecast.trend === 'stable' && <Minus size={12} className="text-sand-400" />}
+                  {customForecast.trend}
+                </span>
+              </div>
+
+              <div className="mt-1.5 flex items-baseline justify-between">
+                <span className="tabular font-display text-xl font-bold text-brand-700">
+                  {customForecast.predictedQuantity}kg
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const days = Math.max(
+                      1,
+                      Math.round(
+                        (new Date(`${predictTo}T00:00:00`).getTime() - new Date(`${today}T00:00:00`).getTime()) /
+                          86400000,
+                      ),
+                    )
+                    onUseSuggestion(customForecast.predictedQuantity, days)
+                  }}
+                  className="rounded-md border border-brand-200 px-2.5 py-1 text-xs font-medium text-brand-700 hover:bg-brand-100"
+                >
+                  Use this
+                </button>
+              </div>
+
+              <p className="mt-2 text-[11px] leading-relaxed text-sand-500">
+                {Math.round(customForecast.targetSpecialDayFraction * 100)}% weekend/holiday days
+                {customForecast.specialDayEffectApplied ? (
+                  <>
+                    {' '}
+                    — adjusted{' '}
+                    <span
+                      className={customForecast.specialDayEffectKg >= 0 ? 'text-brand-400' : 'text-amber-400'}
+                    >
+                      {customForecast.specialDayEffectKg >= 0 ? '+' : ''}
+                      {customForecast.specialDayEffectKg}kg
+                    </span>{' '}
+                    from your own pattern.
+                  </>
+                ) : (
+                  <> — trend-only, not enough weekend/holiday variation yet.</>
+                )}
+              </p>
+            </div>
+          ) : (
+            <p className="text-xs text-sand-400">Pick a valid date range to see a prediction.</p>
+          )}
         </div>
       )}
-    </div>
-  )
-}
-
-function ForecastCard({
-  label,
-  forecast,
-  onUseSuggestion,
-}: {
-  label: string
-  forecast: ForecastResult
-  onUseSuggestion: (quantity: number) => void
-}) {
-  return (
-    <div className="rounded-lg border border-brand-200 bg-sand-100 p-3">
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold text-sand-800">{label}</span>
-        <span className="flex items-center gap-1 text-[11px] font-medium text-sand-500">
-          {forecast.trend === 'increasing' && <TrendingUp size={12} className="text-brand-400" />}
-          {forecast.trend === 'decreasing' && <TrendingDown size={12} className="text-amber-400" />}
-          {forecast.trend === 'stable' && <Minus size={12} className="text-sand-400" />}
-          {forecast.trend}
-        </span>
-      </div>
-
-      <div className="mt-1.5 flex items-baseline justify-between">
-        <span className="tabular font-display text-xl font-bold text-brand-700">
-          {forecast.predictedQuantity}kg
-        </span>
-        <button
-          type="button"
-          onClick={() => onUseSuggestion(forecast.predictedQuantity)}
-          className="rounded-md border border-brand-200 px-2.5 py-1 text-xs font-medium text-brand-700 hover:bg-brand-100"
-        >
-          Use this
-        </button>
-      </div>
-
-      <p className="mt-2 text-[11px] leading-relaxed text-sand-500">
-        {forecast.targetStart} → {forecast.targetEnd} ·{' '}
-        {Math.round(forecast.targetSpecialDayFraction * 100)}% weekend/holiday days
-        {forecast.specialDayEffectApplied ? (
-          <>
-            {' '}
-            — adjusted{' '}
-            <span className={forecast.specialDayEffectKg >= 0 ? 'text-brand-400' : 'text-amber-400'}>
-              {forecast.specialDayEffectKg >= 0 ? '+' : ''}
-              {forecast.specialDayEffectKg}kg
-            </span>{' '}
-            from your own pattern.
-          </>
-        ) : (
-          <> — trend-only, not enough weekend/holiday variation yet.</>
-        )}
-      </p>
     </div>
   )
 }
