@@ -425,6 +425,12 @@ export function findCollectiveBuyingOpportunities(
 ): CollectiveBuyingOpportunity[] {
   const groups = new Map<string, DemandRequest[]>()
   for (const demand of demands) {
+    // A demand already fully covered by a confirmed deal (quantity_kg
+    // driven to 0 by confirm_transaction) needs nothing further -- without
+    // this, it always fails to find a supplier for itself and was
+    // silently disqualifying its ENTIRE zone+crop group from collective
+    // buying, not just itself.
+    if (demand.quantity_kg <= 0) continue
     const key = `${demand.zone}:${demand.crop}`
     if (!groups.has(key)) groups.set(key, [])
     groups.get(key)!.push(demand)
@@ -558,7 +564,10 @@ export function computePlatformMetrics(
     matchedHarvestKg,
     totalHarvestKg,
     matchedDemandCount,
-    totalDemandCount: demands.length,
+    // A demand already driven to 0kg by a confirmed deal is done, not
+    // unmatched -- counting it here would make "X of Y served" get WORSE
+    // the more deals actually get completed, which is backwards.
+    totalDemandCount: demands.filter((d) => d.quantity_kg > 0).length,
   }
 }
 
