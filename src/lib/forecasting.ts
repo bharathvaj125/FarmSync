@@ -1,29 +1,34 @@
 /**
  * Genuine machine learning, deliberately kept simple and honest: multiple
- * linear regression (two predictors: days elapsed, and a weekend 0/1
- * indicator) fit on a shop's own sales history via ordinary least
- * squares, closed-form (Cramer's rule on the 3x3 normal-equations
- * system -- no library needed for two predictors).
+ * linear regression (two predictors: days elapsed, and the fraction of a
+ * period's days that are a weekend or Indian national holiday) fit on a
+ * shop's own sales history via ordinary least squares, closed-form
+ * (Cramer's rule on the 3x3 normal-equations system).
  *
- * Both predictors are fit TOGETHER, not the trend line first with a
- * weekend correction bolted on after. An earlier version here fit a
- * single-variable trend line, then tried to patch in a weekend effect
- * from the residuals -- but weekend spikes had already pulled the trend
- * line itself upward, so the "correction" only partially undid a bias
- * the model created in the first place. Fitting both variables at once
- * avoids that: the trend coefficient reflects the underlying trend
- * only, and the weekend coefficient captures the weekend effect only.
+ * Both predictors are fit TOGETHER, not a trend line first with a
+ * seasonal correction bolted on after -- an earlier single-variable
+ * version had a real bias, because special-day spikes pulled the trend
+ * line itself upward before any "correction" could be applied. Fitting
+ * both at once avoids that: the trend coefficient reflects the
+ * underlying trend only, and the special-day coefficient captures
+ * whatever effect (positive OR negative -- it's fit from the shop's
+ * actual numbers, not assumed) weekends/holidays have on THEIR demand.
  *
- * If a shop hasn't logged both a weekend and a weekday entry yet, there's
- * no way to separate the two, so this falls back to a plain single-
- * variable trend line and says so -- no invented weekend effect.
+ * Holiday coverage is deliberately limited to India's three fixed-date
+ * national holidays (Republic Day, Independence Day, Gandhi Jayanti).
+ * Every free public-holiday API checked either doesn't cover India at
+ * all, or gates future-dated lookups behind a paid tier -- since this
+ * needs to predict a date that hasn't happened yet, there was no honest
+ * free way to include festivals like Diwali or Eid, which move every
+ * year. Rather than guess at dates, those are left out entirely.
  */
 
 export interface SalesRecord {
   id: string
   owner_id: string
   crop: string
-  sale_date: string // ISO 'YYYY-MM-DD'
+  period_start: string // ISO 'YYYY-MM-DD'
+  period_end: string // ISO 'YYYY-MM-DD', >= period_start
   quantity_kg: number
   created_at: string
 }
@@ -33,15 +38,32 @@ export interface ForecastResult {
   trend: 'increasing' | 'decreasing' | 'stable'
   slopePerDay: number
   periodsUsed: number
-  targetDate: string
-  targetIsWeekend: boolean
-  weekendAdjustmentApplied: boolean
-  weekendAdjustmentKg: number
+  targetStart: string
+  targetEnd: string
+  targetSpecialDayFraction: number
+  specialDayEffectApplied: boolean
+  specialDayEffectKg: number
+}
+
+// Fixed-date only -- see module comment for why lunar/festival holidays
+// aren't included.
+const FIXED_INDIAN_HOLIDAYS_MM_DD = new Set([
+  '01-26', // Republic Day
+  '08-15', // Independence Day
+  '10-02', // Gandhi Jayanti
+])
+
+function isIndianNationalHoliday(dateStr: string): boolean {
+  return FIXED_INDIAN_HOLIDAYS_MM_DD.has(dateStr.slice(5, 10))
 }
 
 function isWeekend(dateStr: string): boolean {
   const day = new Date(`${dateStr}T00:00:00`).getDay()
   return day === 0 || day === 6
+}
+
+function isSpecialDay(dateStr: string): boolean {
+  return isWeekend(dateStr) || isIndianNationalHoliday(dateStr)
 }
 
 function daysBetween(a: string, b: string): number {
@@ -50,9 +72,30 @@ function daysBetween(a: string, b: string): number {
 }
 
 function addDays(dateStr: string, days: number): string {
+  // Formats using local date components only (never .toISOString(), which
+  // converts to UTC) -- parsing as local time and then formatting via
+  // UTC silently shifts the result back a day in any timezone ahead of
+  // UTC (e.g. IST). Verified this was a real, active bug before fixing it.
   const d = new Date(`${dateStr}T00:00:00`)
   d.setDate(d.getDate() + days)
-  return d.toISOString().slice(0, 10)
+  const year = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+/** Fraction of days in [start, end] (inclusive) that are a weekend or fixed national holiday. */
+function specialDayFraction(start: string, end: string): number {
+  const totalDays = daysBetween(start, end) + 1
+  let specialCount = 0
+  for (let i = 0; i < totalDays; i++) {
+    if (isSpecialDay(addDays(start, i))) specialCount++
+  }
+  return specialCount / totalDays
+}
+
+function midpointDate(start: string, end: string): string {
+  return addDays(start, Math.floor(daysBetween(start, end) / 2))
 }
 
 function det3(m: number[][]): number {
@@ -67,47 +110,67 @@ function det3(m: number[][]): number {
 function solve3x3(a: number[][], y: number[]): [number, number, number] | null {
   const detA = det3(a)
   if (Math.abs(detA) < 1e-9) return null
-
   const withCol = (col: number, replacement: number[]) =>
     a.map((row, i) => row.map((v, j) => (j === col ? replacement[i] : v)))
-
   return [det3(withCol(0, y)) / detA, det3(withCol(1, y)) / detA, det3(withCol(2, y)) / detA]
 }
 
+function sum(arr: number[]): number {
+  return arr.reduce((a, b) => a + b, 0)
+}
+
+function dot(a: number[], b: number[]): number {
+  return a.reduce((s, v, i) => s + v * b[i], 0)
+}
+
+/** Plain single-variable least squares: y = intercept + slope*x1. */
+function fitSimpleTrend(x1: number[], y: number[]): [number, number] {
+  const n = x1.length
+  const sumX = sum(x1)
+  const sumY = sum(y)
+  const sumXY = x1.reduce((s, x, i) => s + x * y[i], 0)
+  const sumXX = x1.reduce((s, x) => s + x * x, 0)
+  const denominator = n * sumXX - sumX * sumX
+  const slope = denominator === 0 ? 0 : (n * sumXY - sumX * sumY) / denominator
+  const intercept = (sumY - slope * sumX) / n
+  return [slope, intercept]
+}
+
 /**
- * @param history Any order -- sorted internally by sale_date.
- * @param targetDate Defaults to 7 days after the most recent entry
- *   ("next week's order") if not given.
+ * @param history Any order -- sorted internally by period_start.
+ * @param targetStart / targetEnd Default to the 7 days right after the
+ *   most recent entry ("next week's order") if not given.
  */
-export function forecastNextPeriod(history: SalesRecord[], targetDate?: string): ForecastResult | null {
+export function forecastNextPeriod(
+  history: SalesRecord[],
+  targetStart?: string,
+  targetEnd?: string,
+): ForecastResult | null {
   if (history.length < 2) return null // a line needs at least two points
 
-  const sorted = [...history].sort((a, b) => a.sale_date.localeCompare(b.sale_date))
-  const firstDate = sorted[0].sale_date
+  const sorted = [...history].sort((a, b) => a.period_start.localeCompare(b.period_start))
+  const anchor = sorted[0].period_start
   const n = sorted.length
 
-  const x1 = sorted.map((h) => daysBetween(firstDate, h.sale_date)) // days elapsed
-  const x2 = sorted.map((h) => (isWeekend(h.sale_date) ? 1 : 0)) // weekend indicator
+  const x1 = sorted.map((h) => daysBetween(anchor, midpointDate(h.period_start, h.period_end)))
+  const x2 = sorted.map((h) => specialDayFraction(h.period_start, h.period_end))
   const y = sorted.map((h) => h.quantity_kg)
 
-  const target = targetDate ?? addDays(sorted[n - 1].sale_date, 7)
-  const targetX1 = daysBetween(firstDate, target)
-  const targetIsWeekend = isWeekend(target)
+  const lastEntry = sorted[n - 1]
+  const tStart = targetStart ?? addDays(lastEntry.period_end, 1)
+  const tEnd = targetEnd ?? addDays(tStart, 6)
+  const targetX1 = daysBetween(anchor, midpointDate(tStart, tEnd))
+  const targetX2 = specialDayFraction(tStart, tEnd)
 
-  const hasWeekend = x2.some((v) => v === 1)
-  const hasWeekday = x2.some((v) => v === 0)
-  const canFitWeekendTerm = n >= 3 && hasWeekend && hasWeekday
+  const x2Range = Math.max(...x2) - Math.min(...x2)
+  const canFitSpecialDayTerm = n >= 3 && x2Range > 0.05 // meaningful variation between entries
 
   let slope: number
   let intercept: number
-  let weekendCoefficient = 0
-  let weekendAdjustmentApplied = false
+  let specialDayCoefficient = 0
+  let specialDayEffectApplied = false
 
-  if (canFitWeekendTerm) {
-    const sum = (arr: number[]) => arr.reduce((a, b) => a + b, 0)
-    const dot = (a: number[], b: number[]) => a.reduce((s, v, i) => s + v * b[i], 0)
-
-    // Normal equations for y = b0 + b1*x1 + b2*x2, solved directly.
+  if (canFitSpecialDayTerm) {
     const matrix = [
       [n, sum(x1), sum(x2)],
       [sum(x1), dot(x1, x1), dot(x1, x2)],
@@ -117,10 +180,9 @@ export function forecastNextPeriod(history: SalesRecord[], targetDate?: string):
     const solved = solve3x3(matrix, rhs)
 
     if (solved) {
-      ;[intercept, slope, weekendCoefficient] = solved
-      weekendAdjustmentApplied = true
+      ;[intercept, slope, specialDayCoefficient] = solved
+      specialDayEffectApplied = true
     } else {
-      // Degenerate system (e.g. all entries on the same day) -- fall back.
       ;[slope, intercept] = fitSimpleTrend(x1, y)
     }
   } else {
@@ -128,9 +190,9 @@ export function forecastNextPeriod(history: SalesRecord[], targetDate?: string):
   }
 
   const predictedRaw =
-    intercept + slope * targetX1 + (weekendAdjustmentApplied && targetIsWeekend ? weekendCoefficient : 0)
+    intercept + slope * targetX1 + (specialDayEffectApplied ? specialDayCoefficient * targetX2 : 0)
 
-  const meanY = sum_(y) / n
+  const meanY = sum(y) / n
   const weeklySlope = slope * 7
   const trendThreshold = Math.max(meanY * 0.05, 1)
   const trend: ForecastResult['trend'] =
@@ -141,26 +203,10 @@ export function forecastNextPeriod(history: SalesRecord[], targetDate?: string):
     trend,
     slopePerDay: Math.round(slope * 100) / 100,
     periodsUsed: n,
-    targetDate: target,
-    targetIsWeekend,
-    weekendAdjustmentApplied,
-    weekendAdjustmentKg: Math.round(weekendCoefficient),
+    targetStart: tStart,
+    targetEnd: tEnd,
+    targetSpecialDayFraction: Math.round(targetX2 * 100) / 100,
+    specialDayEffectApplied,
+    specialDayEffectKg: Math.round(specialDayCoefficient * targetX2),
   }
-}
-
-function sum_(arr: number[]): number {
-  return arr.reduce((a, b) => a + b, 0)
-}
-
-/** Plain single-variable least squares: y = intercept + slope*x1. */
-function fitSimpleTrend(x1: number[], y: number[]): [number, number] {
-  const n = x1.length
-  const sumX = sum_(x1)
-  const sumY = sum_(y)
-  const sumXY = x1.reduce((s, x, i) => s + x * y[i], 0)
-  const sumXX = x1.reduce((s, x) => s + x * x, 0)
-  const denominator = n * sumXX - sumX * sumX
-  const slope = denominator === 0 ? 0 : (n * sumXY - sumX * sumY) / denominator
-  const intercept = (sumY - slope * sumX) / n
-  return [slope, intercept]
 }

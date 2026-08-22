@@ -165,9 +165,17 @@ function SalesForecastPanel({
   const { profile } = useAuth()
   const [history, setHistory] = useState<SalesRecord[]>([])
   const [loading, setLoading] = useState(true)
-  const [saleDate, setSaleDate] = useState('')
+  const [periodStart, setPeriodStart] = useState('')
+  const [periodEnd, setPeriodEnd] = useState('')
   const [quantity, setQuantity] = useState('')
   const [adding, setAdding] = useState(false)
+  const [rangeError, setRangeError] = useState<string | null>(null)
+
+  // Local date components, not .toISOString() -- that converts to UTC,
+  // which is the wrong calendar day for anyone east of UTC (e.g. IST)
+  // for part of the day.
+  const now = new Date()
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
 
   async function load() {
     if (!profile) return
@@ -176,7 +184,7 @@ function SalesForecastPanel({
       .select('*')
       .eq('owner_id', profile.id)
       .eq('crop', crop)
-      .order('sale_date', { ascending: true })
+      .order('period_start', { ascending: true })
     setHistory((data as SalesRecord[]) ?? [])
     setLoading(false)
   }
@@ -189,15 +197,22 @@ function SalesForecastPanel({
 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault()
-    if (!profile || !quantity || !saleDate) return
+    setRangeError(null)
+    if (!profile || !quantity || !periodStart || !periodEnd) return
+    if (periodEnd < periodStart) {
+      setRangeError('End date must be on or after the start date.')
+      return
+    }
     setAdding(true)
     await supabase.from('sales_history').insert({
       owner_id: profile.id,
       crop,
-      sale_date: saleDate,
+      period_start: periodStart,
+      period_end: periodEnd,
       quantity_kg: Number(quantity),
     })
-    setSaleDate('')
+    setPeriodStart('')
+    setPeriodEnd('')
     setQuantity('')
     setAdding(false)
     load()
@@ -214,18 +229,31 @@ function SalesForecastPanel({
         </h2>
       </div>
       <p className="mb-4 text-xs text-sand-500">
-        Log what you sold in past periods and a regression model fit on your own history will suggest how
-        much to order next — a real prediction, not a guess. You choose whether to use it, go lower, or
-        go higher.
+        Log what you sold over past date ranges and a regression model fit on your own history will
+        suggest how much to order next — a real prediction, not a guess. You choose whether to use it, go
+        lower, or go higher.
       </p>
 
-      <form onSubmit={handleAdd} className="mb-4 flex gap-2">
+      <form onSubmit={handleAdd} className="mb-2 flex flex-wrap gap-2">
         <input
           required
           type="date"
-          value={saleDate}
-          onChange={(e) => setSaleDate(e.target.value)}
+          value={periodStart}
+          max={today}
+          onChange={(e) => setPeriodStart(e.target.value)}
           className="w-36 flex-none rounded-md border border-sand-300 bg-sand-100 px-2 py-1.5 text-xs"
+          aria-label="Period start"
+        />
+        <span className="self-center text-xs text-sand-400">to</span>
+        <input
+          required
+          type="date"
+          value={periodEnd}
+          min={periodStart || undefined}
+          max={today}
+          onChange={(e) => setPeriodEnd(e.target.value)}
+          className="w-36 flex-none rounded-md border border-sand-300 bg-sand-100 px-2 py-1.5 text-xs"
+          aria-label="Period end"
         />
         <input
           required
@@ -244,25 +272,19 @@ function SalesForecastPanel({
           <Plus size={12} /> Add
         </button>
       </form>
+      {rangeError && <p className="mb-2 text-xs text-red-400">{rangeError}</p>}
 
       {!loading && history.length > 0 && (
         <div className="mb-4 flex flex-wrap gap-1.5">
           {history.map((h) => {
-            const weekday = new Date(`${h.sale_date}T00:00:00`).toLocaleDateString('en-IN', {
-              weekday: 'short',
-            })
-            const isWeekendEntry = weekday === 'Sat' || weekday === 'Sun'
+            const rangeLabel =
+              h.period_start === h.period_end ? h.period_start : `${h.period_start} → ${h.period_end}`
             return (
               <span
                 key={h.id}
-                className={`rounded-full border px-2 py-0.5 text-[11px] ${
-                  isWeekendEntry
-                    ? 'border-channel-200 bg-channel-50 text-channel-700'
-                    : 'border-sand-300 bg-sand-100 text-sand-600'
-                }`}
+                className="rounded-full border border-sand-300 bg-sand-100 px-2 py-0.5 text-[11px] text-sand-600"
               >
-                {h.sale_date} ({weekday}):{' '}
-                <span className="tabular font-medium text-sand-800">{h.quantity_kg}kg</span>
+                {rangeLabel}: <span className="tabular font-medium text-sand-800">{h.quantity_kg}kg</span>
               </span>
             )
           })}
@@ -304,23 +326,24 @@ function SalesForecastPanel({
           <p className="mt-2 text-[11px] leading-relaxed text-sand-500">
             For{' '}
             <span className="font-medium text-sand-700">
-              {forecast.targetDate}
-              {forecast.targetIsWeekend ? ' (weekend)' : ' (weekday)'}
-            </span>
-            {forecast.weekendAdjustmentApplied ? (
+              {forecast.targetStart} → {forecast.targetEnd}
+            </span>{' '}
+            ({Math.round(forecast.targetSpecialDayFraction * 100)}% weekend/holiday days)
+            {forecast.specialDayEffectApplied ? (
               <>
                 {' '}
                 — adjusted{' '}
-                <span
-                  className={forecast.weekendAdjustmentKg >= 0 ? 'text-brand-400' : 'text-amber-400'}
-                >
-                  {forecast.weekendAdjustmentKg >= 0 ? '+' : ''}
-                  {forecast.weekendAdjustmentKg}kg
+                <span className={forecast.specialDayEffectKg >= 0 ? 'text-brand-400' : 'text-amber-400'}>
+                  {forecast.specialDayEffectKg >= 0 ? '+' : ''}
+                  {forecast.specialDayEffectKg}kg
                 </span>{' '}
-                from your own {forecast.targetIsWeekend ? 'weekend' : 'weekday'} pattern.
+                from your own weekend/holiday pattern.
               </>
             ) : (
-              <> — no {forecast.targetIsWeekend ? 'weekend' : 'weekday'} entries yet, so this is trend-only.</>
+              <>
+                {' '}
+                — not enough variation between weekend/holiday and regular days yet, so this is trend-only.
+              </>
             )}
           </p>
         </div>
