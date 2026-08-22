@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Landmark } from 'lucide-react'
 import { supabase } from '../lib/supabase'
-import { rankSuppliersForDemand } from '../lib/scoring'
+import { findCollectiveBuyingOpportunities, rankSuppliersForDemand } from '../lib/scoring'
 import { inr, inrPerKg, kg } from '../lib/format'
+import CollectiveBuyingPanel from '../components/CollectiveBuyingPanel'
 import type { CandidateDeal, DemandRequest, HarvestOffer, TransportOption } from '../lib/types'
 
 export default function ShopDashboard() {
@@ -35,12 +36,30 @@ export default function ShopDashboard() {
   if (error) return <Centered>Failed to load: {error}</Centered>
   if (demands.length === 0) return <Centered>No demand requests yet.</Centered>
 
+  return <ShopDashboardBody demands={demands} harvests={harvests} transport={transport} />
+}
+
+function ShopDashboardBody({
+  demands,
+  harvests,
+  transport,
+}: {
+  demands: DemandRequest[]
+  harvests: HarvestOffer[]
+  transport: TransportOption[]
+}) {
+  const opportunities = useMemo(
+    () => findCollectiveBuyingOpportunities(harvests, demands, transport),
+    [harvests, demands, transport],
+  )
+
   return (
     <main className="mx-auto max-w-3xl space-y-8 px-8 py-10">
       <div>
         <h1 className="font-display text-2xl font-bold text-sand-900">Shop dashboard</h1>
         <p className="mt-1 text-sm text-sand-500">Ranked suppliers by expected landed cost, not quoted price.</p>
       </div>
+      <CollectiveBuyingPanel opportunities={opportunities} />
       {demands.map((demand) => (
         <DemandPanel key={demand.id} demand={demand} harvests={harvests} transport={transport} />
       ))}

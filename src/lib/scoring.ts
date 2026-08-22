@@ -350,6 +350,93 @@ export function rankSuppliersForDemand(
   return candidates.sort((a, b) => a.landed_cost_per_kg - b.landed_cost_per_kg)
 }
 
+export interface CollectiveBuyingOpportunity {
+  zone: string
+  crop: string
+  buyers: DemandRequest[]
+  combinedQty: number
+  individualTotalCost: number
+  pooledTotalCost: number
+  savings: number
+  pooledSupplier: CandidateDeal
+}
+
+/**
+ * The master doc's "collective buying" feature: several small shops in the
+ * same zone each order separately, but pooling their demand into one
+ * shared shipment spreads a truck's flat route cost over more kg, which
+ * lowers landed cost per kg for everyone -- real economies of scale, not
+ * a discount invented for the pitch. Only surfaces a group when a single
+ * farmer+route can fully cover the combined quantity in one shipment
+ * (matching the master doc's example of one FPO covering a pooled order);
+ * partial fills aren't counted as a clean win.
+ */
+export function findCollectiveBuyingOpportunities(
+  harvests: HarvestOffer[],
+  demands: DemandRequest[],
+  transportOptions: TransportOption[],
+): CollectiveBuyingOpportunity[] {
+  const groups = new Map<string, DemandRequest[]>()
+  for (const demand of demands) {
+    const key = `${demand.zone}:${demand.crop}`
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key)!.push(demand)
+  }
+
+  const opportunities: CollectiveBuyingOpportunity[] = []
+
+  for (const buyers of groups.values()) {
+    if (buyers.length < 2) continue
+
+    let individualTotalCost = 0
+    let everyoneHasAnOption = true
+    for (const buyer of buyers) {
+      const best = rankSuppliersForDemand(buyer, harvests, transportOptions)[0]
+      if (!best) {
+        everyoneHasAnOption = false
+        break
+      }
+      individualTotalCost += best.landed_cost
+    }
+    if (!everyoneHasAnOption) continue
+
+    const combinedQty = buyers.reduce((sum, b) => sum + b.quantity_kg, 0)
+    const strictestQuality = buyers.reduce(
+      (strictest, b) => (QUALITY_RANK[b.quality_required] > QUALITY_RANK[strictest] ? b.quality_required : strictest),
+      'C',
+    )
+    const pooledDemand: DemandRequest = {
+      id: `pooled:${buyers.map((b) => b.id).join(',')}`,
+      buyer_name: `${buyers.length} pooled buyers`,
+      crop: buyers[0].crop,
+      quantity_kg: combinedQty,
+      required_in_days: Math.min(...buyers.map((b) => b.required_in_days)),
+      zone: buyers[0].zone,
+      max_price: Math.min(...buyers.map((b) => b.max_price)),
+      quality_required: strictestQuality,
+    }
+
+    const pooledSupplier = rankSuppliersForDemand(pooledDemand, harvests, transportOptions)[0]
+    if (!pooledSupplier || pooledSupplier.quantity_kg < combinedQty) continue // no single shipment covers the full group
+
+    const savings = individualTotalCost - pooledSupplier.landed_cost
+    if (savings > 0) {
+      opportunities.push({
+        zone: pooledDemand.zone,
+        crop: pooledDemand.crop,
+        buyers,
+        combinedQty,
+        individualTotalCost,
+        pooledTotalCost: pooledSupplier.landed_cost,
+        savings,
+        pooledSupplier,
+      })
+    }
+  }
+
+  return opportunities.sort((a, b) => b.savings - a.savings)
+}
+
 /**
  * Platform-wide numbers for the Overview screen. Compares FarmSync's
  * recommendation against the naive baseline (farmer: sell to highest
