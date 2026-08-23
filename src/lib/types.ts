@@ -146,6 +146,12 @@ export interface Transaction {
   transport_payment_uploaded_at: string | null
   confirmed_at: string
   assigned_truck_id: string | null
+  // Stamped by accept_truck_request/claim_backhaul and mark_delivered --
+  // the two honest, self-reported timestamps the real transit-speed
+  // estimate is derived from (see computeAverageTruckSpeedKmh in
+  // weather.ts). Null until the truck is actually dispatched/delivered.
+  dispatched_at: string | null
+  delivered_at: string | null
 }
 
 export type TruckStatus = 'available' | 'assigned'

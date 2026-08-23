@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase'
 import { allocateAllHarvests } from '../lib/scoring'
 import { useLiveSync } from '../lib/useLiveSync'
 import { distanceBetweenZonesKm } from '../lib/weather'
+import { buildDeliveryTimings, computeAverageTruckSpeedKmh, estimateTransitHours, formatHours } from '../lib/logistics'
 import { inr, kg } from '../lib/format'
 import { useAuth } from '../lib/AuthContext'
 import type {
@@ -87,6 +88,14 @@ export default function TransportDashboard() {
     dealsByRoute.get(key)!.push(deal)
   }
 
+  // Real observed speed across the whole fleet's completed deliveries --
+  // distance/time from actual dispatched_at -> delivered_at timestamps,
+  // not GPS and not a fixed guess. Platform-wide (not just my trucks) so
+  // the estimate has as many real samples as possible; falls back to a
+  // disclosed cold-start default only before any real delivery exists.
+  const deliveryTimings = buildDeliveryTimings(transactions, harvests, demands)
+  const avgSpeedKmh = computeAverageTruckSpeedKmh(deliveryTimings)
+
   const myRoutes = transport.filter((t) => t.owner_id === profile?.id)
   const myTrucks = trucks.filter((t) => t.owner_id === profile?.id)
   const myTruckIds = new Set(myTrucks.map((t) => t.id))
@@ -166,7 +175,15 @@ export default function TransportDashboard() {
 
       <IncomingTruckRequestsPanel requests={incomingTruckRequests} onResponded={load} />
 
-      <TruckFleetPanel trucks={myTrucks} harvests={harvests} demands={demands} transactions={transactions} onReleased={load} />
+      <TruckFleetPanel
+        trucks={myTrucks}
+        harvests={harvests}
+        demands={demands}
+        transactions={transactions}
+        avgSpeedKmh={avgSpeedKmh}
+        speedSampleCount={deliveryTimings.length}
+        onReleased={load}
+      />
 
       <section className="rounded-2xl border border-sand-200 bg-sand-100 p-6">
         <div className="mb-4 flex items-center gap-2">
@@ -427,12 +444,16 @@ function TruckFleetPanel({
   harvests,
   demands,
   transactions,
+  avgSpeedKmh,
+  speedSampleCount,
   onReleased,
 }: {
   trucks: TruckRow[]
   harvests: HarvestOffer[]
   demands: DemandRequest[]
   transactions: Transaction[]
+  avgSpeedKmh: number
+  speedSampleCount: number
   onReleased: () => void
 }) {
   if (trucks.length === 0) return null
@@ -454,6 +475,8 @@ function TruckFleetPanel({
             harvests={harvests}
             demands={demands}
             transactions={transactions}
+            avgSpeedKmh={avgSpeedKmh}
+            speedSampleCount={speedSampleCount}
             onReleased={onReleased}
           />
         ))}
@@ -468,6 +491,8 @@ function TruckRowItem({
   harvests,
   demands,
   transactions,
+  avgSpeedKmh,
+  speedSampleCount,
   onReleased,
 }: {
   truck: TruckRow
@@ -475,6 +500,8 @@ function TruckRowItem({
   harvests: HarvestOffer[]
   demands: DemandRequest[]
   transactions: Transaction[]
+  avgSpeedKmh: number
+  speedSampleCount: number
   onReleased: () => void
 }) {
   const [busy, setBusy] = useState(false)
@@ -482,6 +509,13 @@ function TruckRowItem({
 
   const harvest = transaction ? harvests.find((h) => h.id === transaction.harvest_offer_id) : null
   const demand = transaction ? demands.find((d) => d.id === transaction.demand_request_id) : null
+
+  // Estimated transit time for THIS delivery -- real route distance over
+  // the fleet's real observed average speed (see logistics.ts). Purely
+  // informational until dispatched_at exists to measure elapsed time
+  // against.
+  const transitDistanceKm = harvest && demand ? distanceBetweenZonesKm(harvest.zone, demand.zone) : null
+  const estimatedHours = transitDistanceKm !== null ? estimateTransitHours(transitDistanceKm, avgSpeedKmh) : null
 
   // Nearby confirmed deals with no truck yet -- ranked by real distance
   // from where this truck actually is right now (current_zone, updated by
@@ -504,6 +538,20 @@ function TruckRowItem({
 
   async function handleMarkDelivered() {
     if (!transaction) return
+    // A gentle plausibility check, not a hard block -- the driver still
+    // knows best what actually happened, this just catches an obviously
+    // premature click against the route's own real-distance estimate.
+    // Computed here (click time), not at render time, so it stays a pure
+    // render and only reads the clock when it's actually about to matter.
+    const hoursSinceDispatch = transaction.dispatched_at
+      ? (new Date().getTime() - new Date(transaction.dispatched_at).getTime()) / 3600000
+      : null
+    if (estimatedHours !== null && hoursSinceDispatch !== null && hoursSinceDispatch < estimatedHours * 0.5) {
+      const ok = window.confirm(
+        `This route is estimated at ~${formatHours(estimatedHours)} (fleet avg ${avgSpeedKmh.toFixed(0)}km/h), but only ${formatHours(hoursSinceDispatch)} has passed since dispatch. Mark delivered anyway?`,
+      )
+      if (!ok) return
+    }
     setBusy(true)
     setError(null)
     const { error: rpcError } = await supabase.rpc('mark_delivered', { p_transaction_id: transaction.id })
@@ -571,6 +619,15 @@ function TruckRowItem({
               {busy ? 'Updating…' : 'Mark delivered'}
             </button>
           </div>
+          {estimatedHours !== null && (
+            <p className="mt-1.5 text-[11px] text-sand-400">
+              Est. transit ~{formatHours(estimatedHours)} ({transitDistanceKm?.toFixed(0)}km at{' '}
+              {speedSampleCount > 0
+                ? `${avgSpeedKmh.toFixed(0)}km/h fleet avg from ${speedSampleCount} completed ${speedSampleCount === 1 ? 'delivery' : 'deliveries'}`
+                : `a ${avgSpeedKmh.toFixed(0)}km/h starting estimate -- no completed deliveries yet`}
+              )
+            </p>
+          )}
           <div className="mt-2 flex items-center justify-between gap-2">
             <span
               className={`text-xs ${transaction.transport_payment_status === 'paid' ? 'text-brand-700' : 'text-amber-300'}`}
