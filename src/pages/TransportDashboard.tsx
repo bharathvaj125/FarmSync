@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Truck, ArrowRight, Plus, CheckCircle2, PackageCheck, Navigation, Inbox, Check, X } from 'lucide-react'
+import { Truck, ArrowRight, Plus, CheckCircle2, PackageCheck, Navigation, Inbox, Check, X, Trash2 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { allocateAllHarvests } from '../lib/scoring'
 import { useLiveSync } from '../lib/useLiveSync'
@@ -195,8 +195,11 @@ export default function TransportDashboard() {
                       </>
                     )}
                   </span>
-                  <span className="tabular text-sm text-sand-600">
-                    {kg(utilizedKg)} / {kg(route.capacity_kg)}
+                  <span className="flex items-center gap-2">
+                    <span className="tabular text-sm text-sand-600">
+                      {kg(utilizedKg)} / {kg(route.capacity_kg)}
+                    </span>
+                    <RemoveRouteButton route={route} onRemoved={load} />
                   </span>
                 </div>
 
@@ -237,6 +240,57 @@ export default function TransportDashboard() {
         </div>
       </section>
     </main>
+  )
+}
+
+/**
+ * Removes a route listing once it's no longer needed -- e.g. the truck
+ * finished that run and the operator doesn't want it offered for new
+ * matches. A route that was actually used in a confirmed transaction is
+ * protected by the database's own foreign key (transactions.transport_
+ * option_id has no cascade), so this fails safely with a clear message
+ * instead of silently orphaning delivery history.
+ */
+function RemoveRouteButton({ route, onRemoved }: { route: TransportOption; onRemoved: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleRemove() {
+    const ok = window.confirm(
+      `Remove ${route.label}? This can't be undone, and any pending requests on this route will go with it.`,
+    )
+    if (!ok) return
+    setBusy(true)
+    setError(null)
+    const { error: deleteError } = await supabase.from('transport_options').delete().eq('id', route.id)
+    setBusy(false)
+    if (deleteError) {
+      setError(
+        deleteError.message.includes('foreign key')
+          ? "Can't remove this route -- it's already been used in a confirmed delivery."
+          : deleteError.message,
+      )
+      return
+    }
+    onRemoved()
+  }
+
+  return (
+    <span className="relative">
+      <button
+        onClick={handleRemove}
+        disabled={busy}
+        title="Remove this route"
+        className="flex items-center gap-1 rounded-md border border-sand-300 px-1.5 py-1 text-xs font-medium text-sand-500 hover:border-red-800 hover:bg-red-950/40 hover:text-red-400 disabled:opacity-50"
+      >
+        <Trash2 size={12} />
+      </button>
+      {error && (
+        <span className="absolute right-0 top-full z-10 mt-1 w-48 rounded-md border border-red-900/40 bg-red-950/90 px-2 py-1.5 text-[11px] text-red-300 shadow-lg">
+          {error}
+        </span>
+      )}
+    </span>
   )
 }
 

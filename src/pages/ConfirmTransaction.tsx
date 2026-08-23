@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { CheckCircle2, ArrowLeft, Phone, Mail, Clock, Clock3, Check, X, Upload, Truck as TruckIcon } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { generateCandidateDeals, daysUntilDelivery, type WeatherByZone } from '../lib/scoring'
-import { fetchWeatherForecast } from '../lib/weather'
+import { fetchWeatherForecast, distanceBetweenZonesKm } from '../lib/weather'
 import { useLiveSync } from '../lib/useLiveSync'
 import { inr, inrPerKg, kg } from '../lib/format'
 import { useAuth, homeFor } from '../lib/AuthContext'
@@ -392,6 +392,14 @@ export default function ConfirmTransaction() {
     const myPendingTruckRequest = truckRequests.find(
       (r) => r.status === 'pending' && r.requested_by === profile?.id,
     )
+    // Ranked by real distance from where the truck is right now to the
+    // pickup zone -- that's the actual variable cost between candidate
+    // trucks (the pickup-to-delivery leg itself is the same regardless of
+    // which one carries it). Same Haversine helper as backhaul matching,
+    // not ML -- a proximity ranking, same as the rest of the allocation.
+    const rankedTrucks = [...availableTrucks]
+      .map((truck) => ({ truck, distanceKm: distanceBetweenZonesKm(truck.current_zone, harvest.zone) }))
+      .sort((a, b) => (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity))
     return (
       <main className="mx-auto max-w-lg px-8 py-10">
         <div className="rounded-2xl border border-brand-200 bg-brand-50 p-6 text-center">
@@ -469,7 +477,7 @@ export default function ConfirmTransaction() {
         ) : (
           isFarmer && (
             <TruckPicker
-              trucks={availableTrucks}
+              trucks={rankedTrucks}
               pendingRequest={myPendingTruckRequest}
               onRequest={handleRequestTruck}
               onCancel={handleCancelTruckRequest}
@@ -778,10 +786,11 @@ function PaymentLegCard({
 
 /**
  * Farmer-only: browse trucks with enough capacity that are currently
- * available, and send one a request -- mirrors exactly how the produce
- * deal itself was requested. Only one pending request at a time (the
- * database enforces this); accepting/declining happens on the truck
- * owner's own dashboard, same as incoming produce requests do.
+ * available, ranked nearest-to-pickup first, and send one a request --
+ * mirrors exactly how the produce deal itself was requested. Only one
+ * pending request at a time (the database enforces this); accepting/
+ * declining happens on the truck owner's own dashboard, same as incoming
+ * produce requests do.
  */
 function TruckPicker({
   trucks,
@@ -790,14 +799,14 @@ function TruckPicker({
   onCancel,
   busy,
 }: {
-  trucks: Truck[]
+  trucks: { truck: Truck; distanceKm: number | null }[]
   pendingRequest: TruckRequest | undefined
   onRequest: (truckId: string) => void
   onCancel: (requestId: string) => void
   busy: boolean
 }) {
   if (pendingRequest) {
-    const truck = trucks.find((t) => t.id === pendingRequest.truck_id)
+    const truck = trucks.find((t) => t.truck.id === pendingRequest.truck_id)?.truck
     return (
       <div className="mt-4 rounded-xl border border-sand-200 bg-sand-100 p-4">
         <p className="text-[11px] font-semibold uppercase tracking-wide text-sand-500">Transport</p>
@@ -826,7 +835,8 @@ function TruckPicker({
         <p className="text-sm text-sand-500">No trucks with enough capacity are available right now.</p>
       ) : (
         <div className="space-y-2">
-          {trucks.map((truck) => (
+          <p className="text-xs text-sand-500">Ranked by distance from each truck to your pickup zone.</p>
+          {trucks.map(({ truck, distanceKm }) => (
             <div
               key={truck.id}
               className="flex items-center justify-between gap-2 rounded-lg border border-sand-200 bg-sand-50 px-3 py-2"
@@ -836,6 +846,12 @@ function TruckPicker({
                 <p className="text-xs text-sand-500">
                   {truck.current_zone} · {kg(truck.capacity_kg)} capacity · reliability{' '}
                   {(truck.reliability_score * 100).toFixed(0)}%
+                  {distanceKm !== null && (
+                    <>
+                      {' '}
+                      · <span className="tabular">{distanceKm.toFixed(0)}km from pickup</span>
+                    </>
+                  )}
                 </p>
               </div>
               <button
