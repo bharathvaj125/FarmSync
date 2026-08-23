@@ -13,6 +13,8 @@ import CreateDemand from './pages/CreateDemand'
 import ConfirmTransaction from './pages/ConfirmTransaction'
 import AdminUsers from './pages/AdminUsers'
 import AdminTrucks from './pages/AdminTrucks'
+import AdminSupport from './pages/AdminSupport'
+import Support from './pages/Support'
 
 function App() {
   return (
@@ -42,6 +44,22 @@ function App() {
               element={
                 <RequireRole role="admin">
                   <AdminTrucks />
+                </RequireRole>
+              }
+            />
+            <Route
+              path="admin/support"
+              element={
+                <RequireRole role="admin">
+                  <AdminSupport />
+                </RequireRole>
+              }
+            />
+            <Route
+              path="support"
+              element={
+                <RequireRole role={['farmer', 'shop', 'transport']}>
+                  <Support />
                 </RequireRole>
               }
             />

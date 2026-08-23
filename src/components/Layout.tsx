@@ -1,16 +1,72 @@
+import { useEffect, useState } from 'react'
 import { Link, Outlet, useLocation } from 'react-router-dom'
-import { Sprout, LogOut, Sparkles, LayoutGrid, Users, Truck } from 'lucide-react'
-import { useAuth, homeFor, ROLE_LABEL } from '../lib/AuthContext'
+import { Sprout, LogOut, Sparkles, LayoutGrid, Users, Truck, LifeBuoy, X } from 'lucide-react'
+import { supabase } from '../lib/supabase'
+import { useAuth, homeFor, ROLE_LABEL, type Role } from '../lib/AuthContext'
 
 const ADMIN_NAV = [
   { to: '/', label: 'Analytics', icon: LayoutGrid, exact: true },
   { to: '/admin/users', label: 'People', icon: Users, exact: false },
   { to: '/admin/trucks', label: 'Fleet', icon: Truck, exact: false },
+  { to: '/admin/support', label: 'Support', icon: LifeBuoy, exact: false },
 ]
+
+// Farmers, shops, and truck owners don't get a management sidebar (they
+// work from their own dashboard), but they do get a way to reach the
+// admin directly for anything outside the normal deal/payment/truck
+// flows.
+const WORKER_NAV = [{ to: '/support', label: 'Support', icon: LifeBuoy, exact: false }]
 
 export default function Layout() {
   const { profile, signOut } = useAuth()
   const location = useLocation()
+  const [openSupportCount, setOpenSupportCount] = useState(0)
+  const [toast, setToast] = useState<string | null>(null)
+
+  // Admin-only: a live count for the sidebar badge (so an open message
+  // is never missed even if nobody was looking at the right moment) plus
+  // a transient popup the instant a new one arrives, wherever the admin
+  // currently is in the app -- Layout wraps every admin page.
+  useEffect(() => {
+    if (profile?.role !== 'admin') return
+    let active = true
+
+    async function refreshCount() {
+      const { count } = await supabase
+        .from('support_messages')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'open')
+      if (active) setOpenSupportCount(count ?? 0)
+    }
+    refreshCount()
+
+    const channel = supabase
+      .channel('admin-support-notify')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'support_messages' },
+        (payload) => {
+          const row = payload.new as { sender_name: string; sender_role: Role; subject: string }
+          setToast(`New support message from ${row.sender_name} (${ROLE_LABEL[row.sender_role]}): "${row.subject}"`)
+          refreshCount()
+        },
+      )
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'support_messages' }, refreshCount)
+      .subscribe()
+
+    return () => {
+      active = false
+      supabase.removeChannel(channel)
+    }
+  }, [profile?.role])
+
+  useEffect(() => {
+    if (!toast) return
+    const timer = setTimeout(() => setToast(null), 10000)
+    return () => clearTimeout(timer)
+  }, [toast])
+
+  const nav = profile?.role === 'admin' ? ADMIN_NAV : profile?.role ? WORKER_NAV : []
 
   return (
     <div className="flex min-h-screen bg-sand-50 text-sand-900">
@@ -37,9 +93,9 @@ export default function Layout() {
           </div>
         )}
 
-        {profile?.role === 'admin' && (
+        {nav.length > 0 && (
           <nav className="flex flex-col gap-1">
-            {ADMIN_NAV.map((item) => {
+            {nav.map((item) => {
               const isActive = item.exact
                 ? location.pathname === item.to
                 : location.pathname.startsWith(item.to)
@@ -56,6 +112,11 @@ export default function Layout() {
                 >
                   <Icon size={16} />
                   {item.label}
+                  {item.to === '/admin/support' && openSupportCount > 0 && (
+                    <span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold text-white">
+                      {openSupportCount}
+                    </span>
+                  )}
                 </Link>
               )
             })}
@@ -79,6 +140,16 @@ export default function Layout() {
       <div className="flex-1">
         <Outlet />
       </div>
+
+      {toast && (
+        <div className="fixed bottom-4 right-4 z-50 flex max-w-sm items-start gap-2.5 rounded-xl border border-brand-200 bg-sand-100 p-4 shadow-lg">
+          <LifeBuoy size={16} className="mt-0.5 flex-none text-brand-600" />
+          <p className="flex-1 text-sm text-sand-800">{toast}</p>
+          <button onClick={() => setToast(null)} className="flex-none text-sand-400 hover:text-sand-700">
+            <X size={14} />
+          </button>
+        </div>
+      )}
     </div>
   )
 }

@@ -204,3 +204,21 @@ export interface TruckRequest {
   created_at: string
   responded_at: string | null
 }
+
+export type SupportMessageStatus = 'open' | 'resolved'
+
+// A direct line from any farmer/buyer/truck owner to the admin for
+// anything outside the normal deal/payment/truck flows -- a dispute, a
+// bug report, a question. One-way (no threaded replies) by design; the
+// admin follows up directly using the sender's own contact info.
+export interface SupportMessage {
+  id: string
+  sender_id: string | null
+  sender_name: string
+  sender_role: 'farmer' | 'shop' | 'transport'
+  subject: string
+  message: string
+  status: SupportMessageStatus
+  created_at: string
+  resolved_at: string | null
+}
