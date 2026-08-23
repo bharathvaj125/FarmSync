@@ -109,15 +109,13 @@ export interface DealRequest {
 export type PaymentStatus = 'pending' | 'paid'
 
 // A confirmed deal -- terms are locked in the moment this row exists.
-// Payment happens directly between the buyer and the farmer (UPI/bank
-// transfer to the phone number already shared); FarmSync never touches
-// the money, it just holds a screenshot as proof once paid. One combined
-// payment covers both real cash components -- produce cost
-// (quantity x unit_price) and transport_cost -- the farmer is then
-// responsible for separately settling with the transporter off-platform.
-// Spoilage/reliability/weather risk stay analytical -- they're what
-// net_realization/landed_cost use to rank and compare deals, not
-// something anyone actually invoices.
+// Two separate real payments, each its own negotiation: the buyer pays
+// the farmer for produce (quantity x unit_price), and -- once a truck
+// has actually accepted a request for this transaction -- the farmer
+// separately pays that truck's owner transport_cost. Both tracked
+// in-app with their own proof-of-payment screenshot. Spoilage/
+// reliability/weather risk stay analytical -- what net_realization/
+// landed_cost use to rank and compare deals, not something invoiced.
 export interface Transaction {
   id: string
   harvest_offer_id: string
@@ -132,6 +130,9 @@ export interface Transaction {
   payment_status: PaymentStatus
   payment_screenshot_path: string | null
   payment_uploaded_at: string | null
+  transport_payment_status: PaymentStatus
+  transport_payment_screenshot_path: string | null
+  transport_payment_uploaded_at: string | null
   confirmed_at: string
   assigned_truck_id: string | null
 }
@@ -139,9 +140,9 @@ export interface Transaction {
 export type TruckStatus = 'available' | 'assigned'
 
 // A physical vehicle, distinct from the static routes in TransportOption.
-// Assigned to a confirmed deal by accept_deal_request (proximity +
-// reliability, not ML -- same philosophy as the deal-scoring engine) and
-// released back to 'available' once mark_delivered is called.
+// Assigned to a transaction only once its owner accepts a TruckRequest
+// the farmer sent -- released back to 'available' once mark_delivered
+// is called.
 export interface Truck {
   id: string
   owner_id: string | null
@@ -154,4 +155,19 @@ export interface Truck {
   status: TruckStatus
   current_transaction_id: string | null
   created_at: string
+}
+
+export type TruckRequestStatus = 'pending' | 'accepted' | 'declined' | 'cancelled'
+
+// The farmer's request for a specific truck to carry a specific
+// confirmed transaction -- mirrors DealRequest one level down. Always
+// initiated by the farmer; the truck's owner accepts or declines.
+export interface TruckRequest {
+  id: string
+  transaction_id: string
+  truck_id: string
+  requested_by: string | null
+  status: TruckRequestStatus
+  created_at: string
+  responded_at: string | null
 }

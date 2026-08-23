@@ -1,13 +1,21 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { CheckCircle2, ArrowLeft, Phone, Mail, Clock, Clock3, Check, X, Upload } from 'lucide-react'
+import { CheckCircle2, ArrowLeft, Phone, Mail, Clock, Clock3, Check, X, Upload, Truck as TruckIcon } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { generateCandidateDeals, daysUntilDelivery, type WeatherByZone } from '../lib/scoring'
 import { fetchWeatherForecast } from '../lib/weather'
 import { useLiveSync } from '../lib/useLiveSync'
 import { inr, inrPerKg, kg } from '../lib/format'
 import { useAuth, homeFor } from '../lib/AuthContext'
-import type { DealRequest, DemandRequest, HarvestOffer, Transaction, TransportOption, Truck } from '../lib/types'
+import type {
+  DealRequest,
+  DemandRequest,
+  HarvestOffer,
+  Transaction,
+  TransportOption,
+  Truck,
+  TruckRequest,
+} from '../lib/types'
 
 const PLATFORM_COMMISSION_RATE = 0.02
 
@@ -70,6 +78,8 @@ export default function ConfirmTransaction() {
   const [transporterContact, setTransporterContact] = useState<ContactInfo | null>(null)
   const [transaction, setTransaction] = useState<Transaction | null>(null)
   const [assignedTruck, setAssignedTruck] = useState<Truck | null>(null)
+  const [truckRequests, setTruckRequests] = useState<TruckRequest[]>([])
+  const [availableTrucks, setAvailableTrucks] = useState<Truck[]>([])
 
   async function loadContacts(h: HarvestOffer, d: DemandRequest) {
     const [farmerProfile, buyerProfile] = await Promise.all([
@@ -146,6 +156,7 @@ export default function ConfirmTransaction() {
               .single()
             const truck = (truckRow as Truck) ?? null
             setAssignedTruck(truck)
+            setAvailableTrucks([])
             if (truck?.owner_id) {
               const { data: transporterProfile } = await supabase
                 .from('profiles')
@@ -159,6 +170,23 @@ export default function ConfirmTransaction() {
           } else {
             setAssignedTruck(null)
             setTransporterContact(null)
+            // No truck yet -- the farmer picks one to request, so load
+            // every truck that could realistically carry this load.
+            const { data: truckRows } = await supabase
+              .from('trucks')
+              .select('*')
+              .eq('status', 'available')
+              .gte('capacity_kg', req.quantity_kg)
+            setAvailableTrucks((truckRows as Truck[]) ?? [])
+          }
+
+          if (transactionRow) {
+            const { data: truckReqRows } = await supabase
+              .from('truck_requests')
+              .select('*')
+              .eq('transaction_id', transactionRow.id)
+              .order('created_at', { ascending: false })
+            setTruckRequests((truckReqRows as TruckRequest[]) ?? [])
           }
         }
       } else {
@@ -211,7 +239,7 @@ export default function ConfirmTransaction() {
   // "waiting for response" -- this picks it up live instead of requiring a
   // manual refresh to see the deal flip to accepted (or notice a decline).
   // Also covers payment_status changing once the buyer uploads proof.
-  useLiveSync(['deal_requests', 'transactions', 'trucks'], load)
+  useLiveSync(['deal_requests', 'transactions', 'trucks', 'truck_requests'], load)
 
   async function handleSendRequest() {
     if (!harvest || !demand || !transport || !terms || !profile) return
@@ -300,6 +328,44 @@ export default function ConfirmTransaction() {
     await load()
   }
 
+  // Farmer-initiated -- picks a specific available truck and sends it a
+  // request, mirroring exactly how the produce deal itself was requested.
+  async function handleRequestTruck(truckId: string) {
+    if (!transaction || !profile) return
+    setBusy(true)
+    setActionError(null)
+
+    const { error: insertError } = await supabase.from('truck_requests').insert({
+      transaction_id: transaction.id,
+      truck_id: truckId,
+      requested_by: profile.id,
+    })
+
+    setBusy(false)
+    if (insertError) {
+      setActionError(insertError.message)
+      return
+    }
+    await load()
+  }
+
+  async function handleCancelTruckRequest(requestId: string) {
+    setBusy(true)
+    setActionError(null)
+
+    const { error: updateError } = await supabase
+      .from('truck_requests')
+      .update({ status: 'cancelled', responded_at: new Date().toISOString() })
+      .eq('id', requestId)
+
+    setBusy(false)
+    if (updateError) {
+      setActionError(updateError.message)
+      return
+    }
+    await load()
+  }
+
   if (loading) return <Centered>Loading deal…</Centered>
   if (error) {
     return (
@@ -319,11 +385,13 @@ export default function ConfirmTransaction() {
   if (mode === 'accepted') {
     const isFarmer = profile?.id === harvest.owner_id
     const isBuyer = profile?.id === demand.owner_id
-    // One combined real-money payment -- produce cost plus transport
-    // cost, both actual cash. The farmer is then responsible for
-    // separately settling the transport share with the transporter,
-    // off-platform (their contact is shown below for exactly that).
-    const combinedAmount = terms.quantity_kg * terms.unit_price + terms.transport_cost
+    // Two separate real payments: produce cost from buyer to farmer
+    // (always), and transport_cost from farmer to whichever truck
+    // actually accepted a request (only once one has).
+    const produceCost = terms.quantity_kg * terms.unit_price
+    const myPendingTruckRequest = truckRequests.find(
+      (r) => r.status === 'pending' && r.requested_by === profile?.id,
+    )
     return (
       <main className="mx-auto max-w-lg px-8 py-10">
         <div className="rounded-2xl border border-brand-200 bg-brand-50 p-6 text-center">
@@ -336,13 +404,11 @@ export default function ConfirmTransaction() {
             Expected delivery {formatDateHuman(deliveryDate)} via {transport.label}
           </p>
           <p className="mt-1 text-sm text-sand-600">
-            {assignedTruck
-              ? `Truck assigned: ${assignedTruck.label} (${assignedTruck.truck_owner_name})`
-              : 'No truck assigned yet — one will be allocated automatically as they become available.'}
+            {assignedTruck ? `Truck assigned: ${assignedTruck.label} (${assignedTruck.truck_owner_name})` : 'No truck assigned yet.'}
           </p>
           <p className="mt-2 text-xs text-sand-500">
-            Terms are locked in. FarmSync doesn't process the payment itself — that happens directly
-            between you two below.
+            Terms are locked in. FarmSync doesn't process payments itself — those happen directly
+            between the people involved, below.
           </p>
         </div>
 
@@ -365,22 +431,54 @@ export default function ConfirmTransaction() {
             />
           )}
         </div>
-        {assignedTruck && (
-          <p className="mt-2 text-xs text-sand-500">
-            The buyer's payment below covers produce + transport together. {harvest.farmer_name} is responsible
-            for separately paying {assignedTruck.truck_owner_name} their {inr(terms.transport_cost)} share.
-          </p>
+
+        {transaction && (
+          <div className="mt-4">
+            <PaymentLegCard
+              transactionId={transaction.id}
+              leg="produce"
+              title="Produce payment"
+              amount={produceCost}
+              payeeContact={farmerContact}
+              payeeFallbackName={harvest.farmer_name}
+              isPayer={isBuyer}
+              payerName={demand.buyer_name}
+              paid={transaction.payment_status === 'paid'}
+              screenshotPath={transaction.payment_screenshot_path}
+              onUploaded={load}
+            />
+          </div>
         )}
 
-        <PaymentSection
-          transaction={transaction}
-          isBuyer={isBuyer}
-          farmerContact={farmerContact}
-          buyerName={demand.buyer_name}
-          farmerFallbackName={harvest.farmer_name}
-          amount={combinedAmount}
-          onUploaded={load}
-        />
+        {transaction && assignedTruck ? (
+          <div className="mt-3">
+            <PaymentLegCard
+              transactionId={transaction.id}
+              leg="transport"
+              title="Transport payment"
+              amount={transaction.transport_cost}
+              payeeContact={transporterContact}
+              payeeFallbackName={assignedTruck.truck_owner_name}
+              isPayer={isFarmer}
+              payerName={harvest.farmer_name}
+              paid={transaction.transport_payment_status === 'paid'}
+              screenshotPath={transaction.transport_payment_screenshot_path}
+              onUploaded={load}
+            />
+          </div>
+        ) : (
+          isFarmer && (
+            <TruckPicker
+              trucks={availableTrucks}
+              pendingRequest={myPendingTruckRequest}
+              onRequest={handleRequestTruck}
+              onCancel={handleCancelTruckRequest}
+              busy={busy}
+            />
+          )
+        )}
+
+        {actionError && <p className="mt-3 text-sm text-red-600">{actionError}</p>}
 
         <div className="mt-4 flex justify-center">
           <button
@@ -557,50 +655,14 @@ function ContactCard({
   )
 }
 
-// One combined real-money payment -- produce cost plus transport cost,
-// both actual cash -- paid by the buyer to the farmer in a single
-// transfer. The farmer is responsible for separately settling the
-// transport share with the transporter, off-platform (see the note and
-// their contact card shown above this).
-function PaymentSection({
-  transaction,
-  isBuyer,
-  farmerContact,
-  buyerName,
-  farmerFallbackName,
-  amount,
-  onUploaded,
-}: {
-  transaction: Transaction | null
-  isBuyer: boolean
-  farmerContact: ContactInfo | null
-  buyerName: string
-  farmerFallbackName: string
-  amount: number
-  onUploaded: () => void
-}) {
-  if (!transaction) return null
-
-  return (
-    <div className="mt-4">
-      <PaymentLegCard
-        transactionId={transaction.id}
-        title="Payment"
-        amount={amount}
-        payeeContact={farmerContact}
-        payeeFallbackName={farmerFallbackName}
-        isPayer={isBuyer}
-        payerName={buyerName}
-        paid={transaction.payment_status === 'paid'}
-        screenshotPath={transaction.payment_screenshot_path}
-        onUploaded={onUploaded}
-      />
-    </div>
-  )
-}
-
+// Two independent real-money legs, each its own negotiation: produce
+// cost (buyer -> farmer) always applies once a deal is confirmed;
+// transport cost (farmer -> truck) only applies once a truck has
+// actually accepted a request, so it never shows an amount to pay
+// before there's a real truck to pay it to.
 function PaymentLegCard({
   transactionId,
+  leg,
   title,
   amount,
   payeeContact,
@@ -612,6 +674,7 @@ function PaymentLegCard({
   onUploaded,
 }: {
   transactionId: string
+  leg: 'produce' | 'transport'
   title: string
   amount: number
   payeeContact: ContactInfo | null
@@ -635,7 +698,7 @@ function PaymentLegCard({
     setUploading(true)
     setUploadError(null)
 
-    const path = `${transactionId}/${Date.now()}-${file.name}`
+    const path = `${transactionId}/${leg}/${Date.now()}-${file.name}`
     const { error: uploadErr } = await supabase.storage.from('payment-screenshots').upload(path, file)
     if (uploadErr) {
       setUploading(false)
@@ -643,14 +706,20 @@ function PaymentLegCard({
       return
     }
 
-    const { error: updateErr } = await supabase
-      .from('transactions')
-      .update({
-        payment_status: 'paid',
-        payment_screenshot_path: path,
-        payment_uploaded_at: new Date().toISOString(),
-      })
-      .eq('id', transactionId)
+    const updates =
+      leg === 'produce'
+        ? {
+            payment_status: 'paid',
+            payment_screenshot_path: path,
+            payment_uploaded_at: new Date().toISOString(),
+          }
+        : {
+            transport_payment_status: 'paid',
+            transport_payment_screenshot_path: path,
+            transport_payment_uploaded_at: new Date().toISOString(),
+          }
+
+    const { error: updateErr } = await supabase.from('transactions').update(updates).eq('id', transactionId)
 
     setUploading(false)
     if (updateErr) {
@@ -702,6 +771,83 @@ function PaymentLegCard({
           <Clock3 size={14} className="flex-none text-amber-400" /> Waiting for {payerName} to complete payment
           and upload proof.
         </p>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Farmer-only: browse trucks with enough capacity that are currently
+ * available, and send one a request -- mirrors exactly how the produce
+ * deal itself was requested. Only one pending request at a time (the
+ * database enforces this); accepting/declining happens on the truck
+ * owner's own dashboard, same as incoming produce requests do.
+ */
+function TruckPicker({
+  trucks,
+  pendingRequest,
+  onRequest,
+  onCancel,
+  busy,
+}: {
+  trucks: Truck[]
+  pendingRequest: TruckRequest | undefined
+  onRequest: (truckId: string) => void
+  onCancel: (requestId: string) => void
+  busy: boolean
+}) {
+  if (pendingRequest) {
+    const truck = trucks.find((t) => t.id === pendingRequest.truck_id)
+    return (
+      <div className="mt-4 rounded-xl border border-sand-200 bg-sand-100 p-4">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-sand-500">Transport</p>
+        <div className="mt-2 flex items-center gap-2 rounded-lg border border-amber-900/40 bg-amber-950/20 px-3 py-2 text-sm text-amber-300">
+          <Clock size={14} className="flex-none" /> Waiting for {truck?.truck_owner_name ?? 'the truck owner'} to
+          respond.
+        </div>
+        <button
+          onClick={() => onCancel(pendingRequest.id)}
+          disabled={busy}
+          className="mt-2 rounded-md border border-sand-300 px-3 py-1.5 text-xs font-medium text-sand-700 hover:bg-sand-100 disabled:opacity-50"
+        >
+          {busy ? 'Cancelling…' : 'Cancel request'}
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-4 rounded-xl border border-sand-200 bg-sand-100 p-4">
+      <div className="mb-2 flex items-center gap-2">
+        <TruckIcon size={14} className="text-sand-500" />
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-sand-500">Choose a truck</p>
+      </div>
+      {trucks.length === 0 ? (
+        <p className="text-sm text-sand-500">No trucks with enough capacity are available right now.</p>
+      ) : (
+        <div className="space-y-2">
+          {trucks.map((truck) => (
+            <div
+              key={truck.id}
+              className="flex items-center justify-between gap-2 rounded-lg border border-sand-200 bg-sand-50 px-3 py-2"
+            >
+              <div>
+                <p className="text-sm font-medium text-sand-900">{truck.label}</p>
+                <p className="text-xs text-sand-500">
+                  {truck.current_zone} · {kg(truck.capacity_kg)} capacity · reliability{' '}
+                  {(truck.reliability_score * 100).toFixed(0)}%
+                </p>
+              </div>
+              <button
+                onClick={() => onRequest(truck.id)}
+                disabled={busy}
+                className="flex-none rounded-md bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-700 disabled:opacity-50"
+              >
+                Request
+              </button>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   )

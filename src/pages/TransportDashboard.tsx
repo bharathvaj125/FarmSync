@@ -1,13 +1,21 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Truck, ArrowRight, Plus, CheckCircle2, PackageCheck, Navigation } from 'lucide-react'
+import { Truck, ArrowRight, Plus, CheckCircle2, PackageCheck, Navigation, Inbox, Check, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { allocateAllHarvests } from '../lib/scoring'
 import { useLiveSync } from '../lib/useLiveSync'
 import { distanceBetweenZonesKm } from '../lib/weather'
 import { inr, kg } from '../lib/format'
 import { useAuth } from '../lib/AuthContext'
-import type { CandidateDeal, DemandRequest, HarvestOffer, Transaction, TransportOption, Truck as TruckRow } from '../lib/types'
+import type {
+  CandidateDeal,
+  DemandRequest,
+  HarvestOffer,
+  Transaction,
+  TransportOption,
+  Truck as TruckRow,
+  TruckRequest,
+} from '../lib/types'
 
 export default function TransportDashboard() {
   const { profile } = useAuth()
@@ -16,16 +24,18 @@ export default function TransportDashboard() {
   const [transport, setTransport] = useState<TransportOption[]>([])
   const [trucks, setTrucks] = useState<TruckRow[]>([])
   const [transactions, setTransactions] = useState<Transaction[]>([])
+  const [truckRequests, setTruckRequests] = useState<TruckRequest[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   async function load() {
-    const [h, d, t, tr, txns] = await Promise.all([
+    const [h, d, t, tr, txns, treqs] = await Promise.all([
       supabase.from('harvest_offers').select('*').order('created_at'),
       supabase.from('demand_requests').select('*').order('created_at'),
       supabase.from('transport_options').select('*').order('created_at'),
       supabase.from('trucks').select('*').order('created_at'),
       supabase.from('transactions').select('*').order('confirmed_at', { ascending: false }),
+      supabase.from('truck_requests').select('*').order('created_at'),
     ])
     if (h.error || d.error || t.error) {
       setError(h.error?.message ?? d.error?.message ?? t.error?.message ?? 'Unknown error')
@@ -35,6 +45,7 @@ export default function TransportDashboard() {
       setTransport(t.data as TransportOption[])
       setTrucks((tr.data as TruckRow[]) ?? [])
       setTransactions((txns.data as Transaction[]) ?? [])
+      setTruckRequests((treqs.data as TruckRequest[]) ?? [])
     }
     setLoading(false)
   }
@@ -44,7 +55,10 @@ export default function TransportDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  useLiveSync(['harvest_offers', 'demand_requests', 'transport_options', 'trucks', 'transactions'], load)
+  useLiveSync(
+    ['harvest_offers', 'demand_requests', 'transport_options', 'trucks', 'transactions', 'truck_requests'],
+    load,
+  )
 
   if (loading) return <Centered>Loading FarmSync…</Centered>
   if (error) {
@@ -75,6 +89,30 @@ export default function TransportDashboard() {
 
   const myRoutes = transport.filter((t) => t.owner_id === profile?.id)
   const myTrucks = trucks.filter((t) => t.owner_id === profile?.id)
+  const myTruckIds = new Set(myTrucks.map((t) => t.id))
+
+  // Farmer-sent requests for one of my trucks -- these need my response
+  // before that truck is assigned to anything.
+  const incomingTruckRequests = truckRequests
+    .filter((r) => r.status === 'pending' && myTruckIds.has(r.truck_id))
+    .map((request) => {
+      const truck = trucks.find((t) => t.id === request.truck_id)
+      const transaction = transactions.find((t) => t.id === request.transaction_id)
+      const harvest = transaction ? harvests.find((h) => h.id === transaction.harvest_offer_id) : undefined
+      const demand = transaction ? demands.find((d) => d.id === transaction.demand_request_id) : undefined
+      return truck && transaction && harvest && demand ? { request, truck, transaction, harvest, demand } : null
+    })
+    .filter(
+      (
+        x,
+      ): x is {
+        request: TruckRequest
+        truck: TruckRow
+        transaction: Transaction
+        harvest: HarvestOffer
+        demand: DemandRequest
+      } => x !== null,
+    )
 
   if (myRoutes.length === 0) {
     return (
@@ -125,6 +163,8 @@ export default function TransportDashboard() {
           <Plus size={14} /> List a route
         </Link>
       </div>
+
+      <IncomingTruckRequestsPanel requests={incomingTruckRequests} onResponded={load} />
 
       <TruckFleetPanel trucks={myTrucks} harvests={harvests} demands={demands} transactions={transactions} onReleased={load} />
 
@@ -201,12 +241,132 @@ export default function TransportDashboard() {
 }
 
 /**
- * Real trucks, distinct from the static routes above -- this is what
- * accept_deal_request actually assigns to a confirmed deal (proximity +
- * reliability, atomically, not ML -- see add_trucks.sql). "Mark
- * delivered" releases a truck back to available so it can be assigned
- * again; without it a truck would get used up once and the fleet would
- * never free up.
+ * Farmer-sent requests for one of my trucks -- mirrors the produce-side
+ * IncomingRequestsPanel exactly. Accepting atomically claims the truck
+ * and assigns it to that transaction (see accept_truck_request); nothing
+ * happens automatically before this.
+ */
+function IncomingTruckRequestsPanel({
+  requests,
+  onResponded,
+}: {
+  requests: {
+    request: TruckRequest
+    truck: TruckRow
+    transaction: Transaction
+    harvest: HarvestOffer
+    demand: DemandRequest
+  }[]
+  onResponded: () => void
+}) {
+  if (requests.length === 0) return null
+
+  return (
+    <div className="rounded-2xl border border-brand-200 bg-brand-50 p-5">
+      <div className="mb-3 flex items-center gap-2">
+        <Inbox size={16} className="text-brand-600" />
+        <h2 className="font-display text-sm font-semibold text-sand-900">
+          {requests.length} truck request{requests.length === 1 ? '' : 's'} waiting for your response
+        </h2>
+      </div>
+      <div className="space-y-2.5">
+        {requests.map((item) => (
+          <TruckRequestRow key={item.request.id} item={item} onResponded={onResponded} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function TruckRequestRow({
+  item,
+  onResponded,
+}: {
+  item: {
+    request: TruckRequest
+    truck: TruckRow
+    transaction: Transaction
+    harvest: HarvestOffer
+    demand: DemandRequest
+  }
+  onResponded: () => void
+}) {
+  const { request, truck, transaction, harvest, demand } = item
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleAccept() {
+    setBusy(true)
+    setError(null)
+    const { data, error: rpcError } = await supabase.rpc('accept_truck_request', { p_request_id: request.id })
+    setBusy(false)
+    if (rpcError) {
+      setError(rpcError.message)
+      return
+    }
+    if (!data) {
+      setError('This truck or transaction is no longer available -- it was claimed elsewhere since the request was sent.')
+      onResponded()
+      return
+    }
+    onResponded()
+  }
+
+  async function handleDecline() {
+    setBusy(true)
+    setError(null)
+    const { error: rpcError } = await supabase.rpc('decline_truck_request', { p_request_id: request.id })
+    setBusy(false)
+    if (rpcError) {
+      setError(rpcError.message)
+      return
+    }
+    onResponded()
+  }
+
+  return (
+    <div className="rounded-lg border border-brand-200/70 bg-sand-50 p-3.5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm text-sand-800">
+            <span className="font-medium text-sand-900">{harvest.farmer_name}</span> wants{' '}
+            <span className="font-medium text-sand-900">{truck.label}</span> to carry{' '}
+            <span className="tabular font-medium text-sand-900">{kg(transaction.quantity_kg)}</span> to{' '}
+            {demand.buyer_name}
+          </p>
+          <p className="mt-0.5 text-xs text-sand-500">
+            Transport fee: <span className="tabular font-medium">{inr(transaction.transport_cost)}</span>
+          </p>
+        </div>
+        <div className="flex flex-none gap-1.5">
+          <button
+            onClick={handleAccept}
+            disabled={busy}
+            className="flex items-center gap-1 rounded-md bg-brand-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-brand-700 disabled:opacity-50"
+          >
+            <Check size={12} /> Accept
+          </button>
+          <button
+            onClick={handleDecline}
+            disabled={busy}
+            className="flex items-center gap-1 rounded-md border border-sand-300 px-2.5 py-1.5 text-xs font-medium text-sand-600 hover:bg-sand-100 disabled:opacity-50"
+          >
+            <X size={12} /> Decline
+          </button>
+        </div>
+      </div>
+      {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+    </div>
+  )
+}
+
+/**
+ * Real trucks, distinct from the static routes above -- assigned to a
+ * transaction only once accept_truck_request runs, following a farmer's
+ * request (see IncomingTruckRequestsPanel above). "Mark delivered"
+ * releases a truck back to available so it can be assigned again;
+ * without it a truck would get used up once and the fleet would never
+ * free up.
  */
 function TruckFleetPanel({
   trucks,
@@ -358,9 +518,12 @@ function TruckRowItem({
             </button>
           </div>
           <div className="mt-2 flex items-center justify-between gap-2">
-            <span className="text-xs text-sand-500">
-              Your share: {inr(transaction.transport_cost)} — settled directly with{' '}
-              {harvest.farmer_name}, off-platform
+            <span
+              className={`text-xs ${transaction.transport_payment_status === 'paid' ? 'text-brand-700' : 'text-amber-300'}`}
+            >
+              {transaction.transport_payment_status === 'paid'
+                ? `Payment received: ${inr(transaction.transport_cost)}`
+                : `Payment pending: ${inr(transaction.transport_cost)}`}
             </span>
             <Link
               to={`/confirm?harvest=${harvest.id}&demand=${demand.id}`}
