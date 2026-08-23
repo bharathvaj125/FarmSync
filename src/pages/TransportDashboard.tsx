@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Truck, ArrowRight, Plus, CheckCircle2, PackageCheck, Navigation, Inbox, Check, X, Trash2 } from 'lucide-react'
+import { Truck, ArrowRight, Plus, CheckCircle2, PackageCheck, Navigation, Inbox, Check, X, Trash2, Lock } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { allocateAllHarvests } from '../lib/scoring'
 import { useLiveSync } from '../lib/useLiveSync'
@@ -101,9 +101,12 @@ export default function TransportDashboard() {
   const myTruckIds = new Set(myTrucks.map((t) => t.id))
 
   // Farmer-sent requests for one of my trucks -- these need my response
-  // before that truck is assigned to anything.
+  // before that truck is assigned to anything. Excludes my OWN backhaul
+  // offers (requested_by_role 'transport') on my own trucks -- those are
+  // waiting on the farmer, not on me, and would otherwise show up here
+  // as if someone else sent them.
   const incomingTruckRequests = truckRequests
-    .filter((r) => r.status === 'pending' && myTruckIds.has(r.truck_id))
+    .filter((r) => r.status === 'pending' && r.requested_by_role === 'farmer' && myTruckIds.has(r.truck_id))
     .map((request) => {
       const truck = trucks.find((t) => t.id === request.truck_id)
       const transaction = transactions.find((t) => t.id === request.transaction_id)
@@ -180,6 +183,8 @@ export default function TransportDashboard() {
         harvests={harvests}
         demands={demands}
         transactions={transactions}
+        truckRequests={truckRequests}
+        myProfileId={profile?.id ?? null}
         avgSpeedKmh={avgSpeedKmh}
         speedSampleCount={deliveryTimings.length}
         onReleased={load}
@@ -444,6 +449,8 @@ function TruckFleetPanel({
   harvests,
   demands,
   transactions,
+  truckRequests,
+  myProfileId,
   avgSpeedKmh,
   speedSampleCount,
   onReleased,
@@ -452,6 +459,8 @@ function TruckFleetPanel({
   harvests: HarvestOffer[]
   demands: DemandRequest[]
   transactions: Transaction[]
+  truckRequests: TruckRequest[]
+  myProfileId: string | null
   avgSpeedKmh: number
   speedSampleCount: number
   onReleased: () => void
@@ -475,6 +484,8 @@ function TruckFleetPanel({
             harvests={harvests}
             demands={demands}
             transactions={transactions}
+            truckRequests={truckRequests}
+            myProfileId={myProfileId}
             avgSpeedKmh={avgSpeedKmh}
             speedSampleCount={speedSampleCount}
             onReleased={onReleased}
@@ -491,6 +502,8 @@ function TruckRowItem({
   harvests,
   demands,
   transactions,
+  truckRequests,
+  myProfileId,
   avgSpeedKmh,
   speedSampleCount,
   onReleased,
@@ -500,6 +513,8 @@ function TruckRowItem({
   harvests: HarvestOffer[]
   demands: DemandRequest[]
   transactions: Transaction[]
+  truckRequests: TruckRequest[]
+  myProfileId: string | null
   avgSpeedKmh: number
   speedSampleCount: number
   onReleased: () => void
@@ -517,14 +532,34 @@ function TruckRowItem({
   const transitDistanceKm = harvest && demand ? distanceBetweenZonesKm(harvest.zone, demand.zone) : null
   const estimatedHours = transitDistanceKm !== null ? estimateTransitHours(transitDistanceKm, avgSpeedKmh) : null
 
+  // This truck's own pending backhaul offers -- sent, waiting for the
+  // farmer to accept, so they don't need to be offered again below.
+  const myPendingOffers = truckRequests
+    .filter((r) => r.status === 'pending' && r.truck_id === truck.id && r.requested_by_role === 'transport')
+    .map((r) => {
+      const t = transactions.find((x) => x.id === r.transaction_id)
+      const h = t ? harvests.find((x) => x.id === t.harvest_offer_id) : null
+      const d = t ? demands.find((x) => x.id === t.demand_request_id) : null
+      return t && h && d ? { request: r, transaction: t, harvest: h, demand: d } : null
+    })
+    .filter((x): x is { request: TruckRequest; transaction: Transaction; harvest: HarvestOffer; demand: DemandRequest } => x !== null)
+  const myPendingOfferTransactionIds = new Set(myPendingOffers.map((o) => o.transaction.id))
+
   // Nearby confirmed deals with no truck yet -- ranked by real distance
   // from where this truck actually is right now (current_zone, updated by
   // mark_delivered), not a same-zone-or-not guess. A greedy proximity
-  // search, not ML, same as the rest of the allocation logic.
+  // search, not ML, same as the rest of the allocation logic. Excludes
+  // ones already offered (see myPendingOfferTransactionIds) so the same
+  // opportunity doesn't get requested twice.
   const backhaulCandidates =
     truck.status === 'available'
       ? transactions
-          .filter((t) => t.assigned_truck_id === null && t.quantity_kg <= truck.capacity_kg)
+          .filter(
+            (t) =>
+              t.assigned_truck_id === null &&
+              t.quantity_kg <= truck.capacity_kg &&
+              !myPendingOfferTransactionIds.has(t.id),
+          )
           .map((t) => {
             const h = harvests.find((x) => x.id === t.harvest_offer_id)
             const d = demands.find((x) => x.id === t.demand_request_id)
@@ -563,16 +598,24 @@ function TruckRowItem({
     onReleased()
   }
 
-  async function handleClaimBackhaul(transactionId: string) {
+  // Sends the farmer a request instead of auto-assigning -- a backhaul
+  // is truck-initiated (the reverse of the normal farmer-browses-trucks
+  // flow), but the farmer still has to actually accept it before this
+  // truck counts as assigned. Same truck_requests table and same
+  // accept/decline RPCs, just requested_by_role: 'transport' this time.
+  async function handleRequestBackhaul(transactionId: string) {
+    if (!myProfileId) return
     setBusy(true)
     setError(null)
-    const { error: rpcError } = await supabase.rpc('claim_backhaul', {
-      p_truck_id: truck.id,
-      p_transaction_id: transactionId,
+    const { error: insertError } = await supabase.from('truck_requests').insert({
+      transaction_id: transactionId,
+      truck_id: truck.id,
+      requested_by: myProfileId,
+      requested_by_role: 'transport',
     })
     setBusy(false)
-    if (rpcError) {
-      setError(rpcError.message)
+    if (insertError) {
+      setError(insertError.message)
       return
     }
     onReleased()
@@ -611,13 +654,22 @@ function TruckRowItem({
             <p className="text-xs text-sand-500">
               {harvest.farmer_name} → {demand.buyer_name} · <span className="tabular">{kg(transaction.quantity_kg)}</span>
             </p>
-            <button
-              onClick={handleMarkDelivered}
-              disabled={busy}
-              className="rounded-md border border-sand-300 px-2.5 py-1.5 text-xs font-medium text-sand-700 hover:bg-sand-100 disabled:opacity-50"
-            >
-              {busy ? 'Updating…' : 'Mark delivered'}
-            </button>
+            {transaction.transport_payment_status === 'paid' ? (
+              <button
+                onClick={handleMarkDelivered}
+                disabled={busy}
+                className="rounded-md border border-sand-300 px-2.5 py-1.5 text-xs font-medium text-sand-700 hover:bg-sand-100 disabled:opacity-50"
+              >
+                {busy ? 'Updating…' : 'Mark delivered'}
+              </button>
+            ) : (
+              <span
+                className="flex items-center gap-1 rounded-md border border-sand-200 px-2.5 py-1.5 text-xs text-sand-400"
+                title="Opens once your transport payment is verified as received"
+              >
+                <Lock size={11} /> Mark delivered
+              </span>
+            )}
           </div>
           {estimatedHours !== null && (
             <p className="mt-1.5 text-[11px] text-sand-400">
@@ -648,6 +700,20 @@ function TruckRowItem({
         </div>
       )}
 
+      {truck.status === 'available' && myPendingOffers.length > 0 && (
+        <div className="mt-3 space-y-1.5 border-t border-sand-100 pt-3">
+          <p className="text-xs font-medium text-sand-600">Backhaul offers sent, awaiting the farmer</p>
+          {myPendingOffers.map(({ request, harvest: h, demand: d, transaction: t }) => (
+            <div key={request.id} className="flex items-center justify-between gap-2 text-xs">
+              <span className="text-sand-500">
+                {h.farmer_name} → {d.buyer_name} · <span className="tabular">{kg(t.quantity_kg)}</span>
+              </span>
+              <span className="flex-none text-amber-300">Pending</span>
+            </div>
+          ))}
+        </div>
+      )}
+
       {truck.status === 'available' && backhaulCandidates.length > 0 && (
         <div className="mt-3 space-y-1.5 border-t border-sand-100 pt-3">
           <p className="text-xs font-medium text-sand-600">
@@ -660,11 +726,11 @@ function TruckRowItem({
                 <span className="tabular">{distanceKm.toFixed(0)}km away</span>
               </span>
               <button
-                onClick={() => handleClaimBackhaul(t.id)}
+                onClick={() => handleRequestBackhaul(t.id)}
                 disabled={busy}
                 className="flex-none rounded-md bg-channel-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-channel-700 disabled:opacity-50"
               >
-                Claim
+                Request
               </button>
             </div>
           ))}

@@ -340,6 +340,7 @@ export default function ConfirmTransaction() {
       transaction_id: transaction.id,
       truck_id: truckId,
       requested_by: profile.id,
+      requested_by_role: 'farmer',
     })
 
     setBusy(false)
@@ -362,6 +363,44 @@ export default function ConfirmTransaction() {
     setBusy(false)
     if (updateError) {
       setActionError(updateError.message)
+      return
+    }
+    await load()
+  }
+
+  // The mirror case -- a truck offered ITSELF for a backhaul (see
+  // TransportDashboard's handleClaimBackhaul), so the farmer is the one
+  // accepting/declining here instead of sending the request. Same RPCs
+  // as the truck-owner side uses; they don't care which direction the
+  // request came from, only that it's still pending.
+  async function handleAcceptTruckOffer(requestId: string) {
+    setBusy(true)
+    setActionError(null)
+
+    const { data, error: rpcError } = await supabase.rpc('accept_truck_request', { p_request_id: requestId })
+
+    setBusy(false)
+    if (rpcError) {
+      setActionError(rpcError.message)
+      return
+    }
+    if (!data) {
+      setActionError('This truck is no longer available -- it was claimed elsewhere since it made the offer.')
+      await load()
+      return
+    }
+    await load()
+  }
+
+  async function handleDeclineTruckOffer(requestId: string) {
+    setBusy(true)
+    setActionError(null)
+
+    const { error: rpcError } = await supabase.rpc('decline_truck_request', { p_request_id: requestId })
+
+    setBusy(false)
+    if (rpcError) {
+      setActionError(rpcError.message)
       return
     }
     await load()
@@ -394,6 +433,15 @@ export default function ConfirmTransaction() {
     const myPendingTruckRequest = truckRequests.find(
       (r) => r.status === 'pending' && r.requested_by === profile?.id,
     )
+    // A truck offering ITSELF as a backhaul (see TransportDashboard's
+    // handleClaimBackhaul) -- I didn't send this one, a truck owner did,
+    // so I'm the one who accepts/declines it, not the one waiting.
+    const incomingTruckOffer = truckRequests.find(
+      (r) => r.status === 'pending' && r.requested_by !== profile?.id,
+    )
+    const incomingTruckOfferTruck = incomingTruckOffer
+      ? availableTrucks.find((t) => t.id === incomingTruckOffer.truck_id)
+      : undefined
     // Ranked by real distance from where the truck is right now to the
     // pickup zone -- that's the actual variable cost between candidate
     // trucks (the pickup-to-delivery leg itself is the same regardless of
@@ -489,6 +537,14 @@ export default function ConfirmTransaction() {
               }
             />
           </div>
+        ) : incomingTruckOffer && isFarmer ? (
+          <IncomingTruckOfferCard
+            request={incomingTruckOffer}
+            truck={incomingTruckOfferTruck}
+            onAccept={handleAcceptTruckOffer}
+            onDecline={handleDeclineTruckOffer}
+            busy={busy}
+          />
         ) : (
           isFarmer && (
             <TruckPicker
@@ -800,12 +856,12 @@ function PaymentLegCard({
       <p className="text-[11px] font-semibold uppercase tracking-wide text-sand-500">{title}</p>
 
       {status === 'paid' ? (
-        <div className="mt-2">
+        <div className="mt-2 space-y-2">
           <p className="flex items-center gap-1.5 text-sm font-medium text-brand-700">
-            <CheckCircle2 size={14} /> Payment verified as received
+            <CheckCircle2 size={14} /> Payment received: {inr(amount)}
           </p>
           {screenshotUrl && (
-            <a href={screenshotUrl} target="_blank" rel="noreferrer" className="mt-2 block">
+            <a href={screenshotUrl} target="_blank" rel="noreferrer" className="block">
               <img
                 src={screenshotUrl}
                 alt="Payment screenshot"
@@ -813,6 +869,10 @@ function PaymentLegCard({
               />
             </a>
           )}
+          <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+            <ContactLine contact={payerContact} fallbackName={payerFallbackName} />
+            <ContactLine contact={payeeContact} fallbackName={payeeFallbackName} />
+          </div>
         </div>
       ) : blockedReason ? (
         <div className="mt-2 flex items-center gap-2 rounded-lg border border-sand-300 bg-sand-50 px-3 py-2 text-sm text-sand-500">
@@ -919,6 +979,63 @@ function ContactLine({
         <Mail size={11} className="text-sand-400" /> {contact.email}
       </span>
       {note && <span className="text-sand-400">— {note}</span>}
+    </div>
+  )
+}
+
+/**
+ * The reverse of TruckPicker -- a truck owner offered their own truck for
+ * this delivery as a backhaul (see TransportDashboard's
+ * handleClaimBackhaul), instead of the farmer browsing and requesting
+ * one. Same accept/decline as any other truck request, just initiated
+ * from the other side.
+ */
+function IncomingTruckOfferCard({
+  request,
+  truck,
+  onAccept,
+  onDecline,
+  busy,
+}: {
+  request: TruckRequest
+  truck: Truck | undefined
+  onAccept: (requestId: string) => void
+  onDecline: (requestId: string) => void
+  busy: boolean
+}) {
+  return (
+    <div className="mt-4 rounded-xl border border-brand-200 bg-brand-50 p-4">
+      <div className="mb-2 flex items-center gap-2">
+        <TruckIcon size={14} className="text-brand-600" />
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-sand-500">Truck offer</p>
+      </div>
+      <p className="text-sm text-sand-700">
+        <span className="font-medium">{truck?.truck_owner_name ?? 'A truck owner'}</span>'s{' '}
+        <span className="font-medium">{truck?.label ?? 'truck'}</span> offered to carry this delivery
+        {truck && (
+          <>
+            {' '}
+            — currently at {truck.current_zone}, {kg(truck.capacity_kg)} capacity, reliability{' '}
+            {(truck.reliability_score * 100).toFixed(0)}%.
+          </>
+        )}
+      </p>
+      <div className="mt-3 flex gap-2">
+        <button
+          onClick={() => onAccept(request.id)}
+          disabled={busy}
+          className="flex items-center gap-1.5 rounded-md bg-brand-600 px-3 py-2 text-xs font-medium text-white hover:bg-brand-700 disabled:opacity-50"
+        >
+          <Check size={12} /> {busy ? 'Accepting…' : 'Accept'}
+        </button>
+        <button
+          onClick={() => onDecline(request.id)}
+          disabled={busy}
+          className="flex items-center gap-1.5 rounded-md border border-sand-300 px-3 py-2 text-xs font-medium text-sand-700 hover:bg-sand-100 disabled:opacity-50"
+        >
+          <X size={12} /> {busy ? 'Declining…' : 'Decline'}
+        </button>
+      </div>
     </div>
   )
 }

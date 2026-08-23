@@ -186,14 +186,20 @@ export interface Truck {
 
 export type TruckRequestStatus = 'pending' | 'accepted' | 'declined' | 'cancelled'
 
-// The farmer's request for a specific truck to carry a specific
-// confirmed transaction -- mirrors DealRequest one level down. Always
-// initiated by the farmer; the truck's owner accepts or declines.
+// A request linking one truck to one confirmed transaction -- mirrors
+// DealRequest one level down. Bidirectional, like DealRequest is between
+// farmer/shop: usually the farmer browses and requests a specific truck
+// (requested_by_role 'farmer'), but a truck can also offer itself for a
+// backhaul (requested_by_role 'transport', see TransportDashboard's
+// handleRequestBackhaul) -- either way, accept/decline is the OTHER
+// side's call, and accept_truck_request/decline_truck_request don't care
+// which direction the request came from.
 export interface TruckRequest {
   id: string
   transaction_id: string
   truck_id: string
   requested_by: string | null
+  requested_by_role: 'farmer' | 'transport'
   status: TruckRequestStatus
   created_at: string
   responded_at: string | null
