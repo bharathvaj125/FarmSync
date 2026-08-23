@@ -11,6 +11,7 @@ import type {
   DealRequest,
   DemandRequest,
   HarvestOffer,
+  PaymentStatus,
   Transaction,
   TransportOption,
   Truck,
@@ -385,6 +386,7 @@ export default function ConfirmTransaction() {
   if (mode === 'accepted') {
     const isFarmer = profile?.id === harvest.owner_id
     const isBuyer = profile?.id === demand.owner_id
+    const isTransporter = !!assignedTruck && profile?.id === assignedTruck.owner_id
     // Two separate real payments: produce cost from buyer to farmer
     // (always), and transport_cost from farmer to whichever truck
     // actually accepted a request (only once one has).
@@ -449,9 +451,13 @@ export default function ConfirmTransaction() {
               amount={produceCost}
               payeeContact={farmerContact}
               payeeFallbackName={harvest.farmer_name}
+              payerContact={buyerContact}
+              payerFallbackName={demand.buyer_name}
               isPayer={isBuyer}
+              isPayee={isFarmer}
               payerName={demand.buyer_name}
-              paid={transaction.payment_status === 'paid'}
+              payeeName={harvest.farmer_name}
+              status={transaction.payment_status}
               screenshotPath={transaction.payment_screenshot_path}
               onUploaded={load}
             />
@@ -467,15 +473,19 @@ export default function ConfirmTransaction() {
               amount={transaction.transport_cost}
               payeeContact={transporterContact}
               payeeFallbackName={assignedTruck.truck_owner_name}
+              payerContact={farmerContact}
+              payerFallbackName={harvest.farmer_name}
               isPayer={isFarmer}
+              isPayee={isTransporter}
               payerName={harvest.farmer_name}
-              paid={transaction.transport_payment_status === 'paid'}
+              payeeName={assignedTruck.truck_owner_name}
+              status={transaction.transport_payment_status}
               screenshotPath={transaction.transport_payment_screenshot_path}
               onUploaded={load}
               blockedReason={
                 transaction.payment_status === 'paid'
                   ? null
-                  : `Opens once ${demand.buyer_name} pays for the produce -- the truck gets paid from that.`
+                  : `Opens once ${demand.buyer_name}'s produce payment is verified -- the truck gets paid from that.`
               }
             />
           </div>
@@ -672,7 +682,11 @@ function ContactCard({
 // cost (buyer -> farmer) always applies once a deal is confirmed;
 // transport cost (farmer -> truck) only applies once a truck has
 // actually accepted a request, so it never shows an amount to pay
-// before there's a real truck to pay it to.
+// before there's a real truck to pay it to. Each leg has three real
+// states, not two: uploading a screenshot only ever gets you to
+// 'submitted' -- an image was never proof by itself -- and only the
+// person who actually received the money can move it to 'paid', by
+// reviewing the screenshot and explicitly confirming.
 function PaymentLegCard({
   transactionId,
   leg,
@@ -680,9 +694,13 @@ function PaymentLegCard({
   amount,
   payeeContact,
   payeeFallbackName,
+  payerContact,
+  payerFallbackName,
   isPayer,
+  isPayee,
   payerName,
-  paid,
+  payeeName,
+  status,
   screenshotPath,
   onUploaded,
   blockedReason,
@@ -693,19 +711,25 @@ function PaymentLegCard({
   amount: number
   payeeContact: ContactInfo | null
   payeeFallbackName: string
+  payerContact: ContactInfo | null
+  payerFallbackName: string
   isPayer: boolean
+  isPayee: boolean
   payerName: string
-  paid: boolean
+  payeeName: string
+  status: PaymentStatus
   screenshotPath: string | null
   onUploaded: () => void
   // When set (and not yet paid), the payer sees this instead of the
   // upload control -- e.g. the farmer can't pay the truck until the
-  // buyer's produce payment is confirmed, so the money to pay it with
-  // has actually arrived.
+  // buyer's produce payment is VERIFIED (not just uploaded), so the
+  // money to pay it with has actually, confirmedly arrived.
   blockedReason?: string | null
 }) {
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
+  const [verifying, setVerifying] = useState(false)
+  const [verifyError, setVerifyError] = useState<string | null>(null)
 
   const screenshotUrl = screenshotPath
     ? supabase.storage.from('payment-screenshots').getPublicUrl(screenshotPath).data.publicUrl
@@ -728,12 +752,12 @@ function PaymentLegCard({
     const updates =
       leg === 'produce'
         ? {
-            payment_status: 'paid',
+            payment_status: 'submitted',
             payment_screenshot_path: path,
             payment_uploaded_at: new Date().toISOString(),
           }
         : {
-            transport_payment_status: 'paid',
+            transport_payment_status: 'submitted',
             transport_payment_screenshot_path: path,
             transport_payment_uploaded_at: new Date().toISOString(),
           }
@@ -748,13 +772,37 @@ function PaymentLegCard({
     onUploaded()
   }
 
+  async function handleVerify() {
+    const ok = window.confirm(
+      `Are you sure this payment is verified? This marks the ${leg === 'produce' ? 'produce' : 'transport'} payment as complete and can't be undone here.`,
+    )
+    if (!ok) return
+    setVerifying(true)
+    setVerifyError(null)
+
+    const updates =
+      leg === 'produce'
+        ? { payment_status: 'paid', payment_verified_at: new Date().toISOString() }
+        : { transport_payment_status: 'paid', transport_payment_verified_at: new Date().toISOString() }
+
+    const { error: updateErr } = await supabase.from('transactions').update(updates).eq('id', transactionId)
+
+    setVerifying(false)
+    if (updateErr) {
+      setVerifyError(updateErr.message)
+      return
+    }
+    onUploaded()
+  }
+
   return (
     <div className="rounded-xl border border-sand-200 bg-sand-100 p-4">
       <p className="text-[11px] font-semibold uppercase tracking-wide text-sand-500">{title}</p>
-      {paid ? (
+
+      {status === 'paid' ? (
         <div className="mt-2">
           <p className="flex items-center gap-1.5 text-sm font-medium text-brand-700">
-            <CheckCircle2 size={14} /> Payment marked as received
+            <CheckCircle2 size={14} /> Payment verified as received
           </p>
           {screenshotUrl && (
             <a href={screenshotUrl} target="_blank" rel="noreferrer" className="mt-2 block">
@@ -770,6 +818,50 @@ function PaymentLegCard({
         <div className="mt-2 flex items-center gap-2 rounded-lg border border-sand-300 bg-sand-50 px-3 py-2 text-sm text-sand-500">
           <Lock size={14} className="flex-none" /> {blockedReason}
         </div>
+      ) : status === 'submitted' ? (
+        isPayee ? (
+          <div className="mt-2 space-y-2.5">
+            <p className="text-sm text-sand-600">
+              {payerName} says they've paid {inr(amount)}. Review the screenshot below, then verify it
+              yourself before it's considered received.
+            </p>
+            {screenshotUrl && (
+              <a href={screenshotUrl} target="_blank" rel="noreferrer" className="block">
+                <img
+                  src={screenshotUrl}
+                  alt="Payment screenshot"
+                  className="max-h-56 rounded-lg border border-sand-200"
+                />
+              </a>
+            )}
+            <ContactLine contact={payerContact} fallbackName={payerFallbackName} note="call to confirm if anything's unclear" />
+            <button
+              onClick={handleVerify}
+              disabled={verifying}
+              className="flex items-center gap-1.5 rounded-md bg-brand-600 px-3 py-2 text-xs font-medium text-white hover:bg-brand-700 disabled:opacity-50"
+            >
+              <Check size={12} /> {verifying ? 'Verifying…' : 'Verify payment'}
+            </button>
+            {verifyError && <p className="text-xs text-red-600">{verifyError}</p>}
+          </div>
+        ) : (
+          <div className="mt-2 space-y-2">
+            <p className="flex items-center gap-1.5 text-sm text-sand-600">
+              <Clock3 size={14} className="flex-none text-amber-400" /> Submitted — waiting for {payeeName} to
+              verify they've received it.
+            </p>
+            {screenshotUrl && (
+              <a href={screenshotUrl} target="_blank" rel="noreferrer" className="block">
+                <img
+                  src={screenshotUrl}
+                  alt="Payment screenshot you uploaded"
+                  className="max-h-56 rounded-lg border border-sand-200"
+                />
+              </a>
+            )}
+            <ContactLine contact={payeeContact} fallbackName={payeeFallbackName} note="follow up if it's taking a while" />
+          </div>
+        )
       ) : isPayer ? (
         <div className="mt-2 space-y-2.5">
           <p className="text-sm text-sand-600">
@@ -777,6 +869,7 @@ function PaymentLegCard({
             UPI or bank transfer, then upload proof here. FarmSync doesn't process this payment — it goes
             directly to them.
           </p>
+          <ContactLine contact={payeeContact} fallbackName={payeeFallbackName} />
           <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-brand-600 px-3 py-2 text-xs font-medium text-white hover:bg-brand-700">
             <Upload size={12} /> {uploading ? 'Uploading…' : 'Upload payment screenshot'}
             <input
@@ -790,11 +883,42 @@ function PaymentLegCard({
           {uploadError && <p className="text-xs text-red-600">{uploadError}</p>}
         </div>
       ) : (
-        <p className="mt-2 flex items-center gap-1.5 text-sm text-sand-600">
-          <Clock3 size={14} className="flex-none text-amber-400" /> Waiting for {payerName} to complete payment
-          and upload proof.
-        </p>
+        <div className="mt-2 space-y-2">
+          <p className="flex items-center gap-1.5 text-sm text-sand-600">
+            <Clock3 size={14} className="flex-none text-amber-400" /> Waiting for {payerName} to complete
+            payment and upload proof.
+          </p>
+          <ContactLine contact={payerContact} fallbackName={payerFallbackName} note="reach out if it's overdue" />
+        </div>
       )}
+    </div>
+  )
+}
+
+/** Phone + email, shown together everywhere a payer/payee needs to actually reach the other side. */
+function ContactLine({
+  contact,
+  fallbackName,
+  note,
+}: {
+  contact: ContactInfo | null
+  fallbackName: string
+  note?: string
+}) {
+  if (!contact) {
+    return <p className="text-xs text-sand-400">Contact not available for {fallbackName}.</p>
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md bg-sand-50 px-2.5 py-1.5 text-xs text-sand-600">
+      {contact.phone_number && (
+        <span className="flex items-center gap-1">
+          <Phone size={11} className="text-sand-400" /> {contact.phone_number}
+        </span>
+      )}
+      <span className="flex items-center gap-1">
+        <Mail size={11} className="text-sand-400" /> {contact.email}
+      </span>
+      {note && <span className="text-sand-400">— {note}</span>}
     </div>
   )
 }

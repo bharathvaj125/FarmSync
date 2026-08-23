@@ -36,6 +36,7 @@ export default function ConfirmedDealsPanel({
         {deals.map(({ transaction, harvest, demand }) => {
           const counterpartName = viewerRole === 'farmer' ? demand.buyer_name : harvest.farmer_name
           const paid = transaction.payment_status === 'paid'
+          const submitted = transaction.payment_status === 'submitted'
           return (
             <Link
               key={transaction.id}
@@ -52,6 +53,10 @@ export default function ConfirmedDealsPanel({
                 {paid ? (
                   <span className="flex items-center gap-1 rounded-full bg-brand-100 px-2 py-0.5 text-[11px] font-semibold text-brand-700">
                     <CheckCircle2 size={11} /> Paid
+                  </span>
+                ) : submitted ? (
+                  <span className="flex items-center gap-1 rounded-full bg-amber-950/30 px-2 py-0.5 text-[11px] font-semibold text-amber-300">
+                    <Clock3 size={11} /> Awaiting verification
                   </span>
                 ) : (
                   <span className="flex items-center gap-1 rounded-full bg-amber-950/30 px-2 py-0.5 text-[11px] font-semibold text-amber-300">

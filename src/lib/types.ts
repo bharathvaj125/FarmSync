@@ -117,16 +117,24 @@ export interface DealRequest {
   responded_at: string | null
 }
 
-export type PaymentStatus = 'pending' | 'paid'
+// pending: nothing uploaded yet. submitted: the payer uploaded a
+// screenshot, but the payee hasn't confirmed the money actually arrived
+// -- an uploaded image alone was never proof, so nothing downstream
+// (like unlocking the transport payment) treats 'submitted' as paid.
+// paid: the payee explicitly clicked "Verify payment" after reviewing
+// the screenshot.
+export type PaymentStatus = 'pending' | 'submitted' | 'paid'
 
 // A confirmed deal -- terms are locked in the moment this row exists.
 // Two separate real payments, each its own negotiation: the buyer pays
 // the farmer for produce (quantity x unit_price), and -- once a truck
 // has actually accepted a request for this transaction -- the farmer
 // separately pays that truck's owner transport_cost. Both tracked
-// in-app with their own proof-of-payment screenshot. Spoilage/
-// reliability/weather risk stay analytical -- what net_realization/
-// landed_cost use to rank and compare deals, not something invoiced.
+// in-app with their own proof-of-payment screenshot AND an explicit
+// verification click from whoever actually received the money --
+// uploading an image was never proof by itself. Spoilage/reliability/
+// weather risk stay analytical -- what net_realization/landed_cost use
+// to rank and compare deals, not something invoiced.
 export interface Transaction {
   id: string
   harvest_offer_id: string
@@ -141,9 +149,11 @@ export interface Transaction {
   payment_status: PaymentStatus
   payment_screenshot_path: string | null
   payment_uploaded_at: string | null
+  payment_verified_at: string | null
   transport_payment_status: PaymentStatus
   transport_payment_screenshot_path: string | null
   transport_payment_uploaded_at: string | null
+  transport_payment_verified_at: string | null
   confirmed_at: string
   assigned_truck_id: string | null
   // Stamped by accept_truck_request/claim_backhaul and mark_delivered --

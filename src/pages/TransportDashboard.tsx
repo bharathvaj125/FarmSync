@@ -634,7 +634,9 @@ function TruckRowItem({
             >
               {transaction.transport_payment_status === 'paid'
                 ? `Payment received: ${inr(transaction.transport_cost)}`
-                : `Payment pending: ${inr(transaction.transport_cost)}`}
+                : transaction.transport_payment_status === 'submitted'
+                  ? `Verify payment: ${inr(transaction.transport_cost)}`
+                  : `Payment pending: ${inr(transaction.transport_cost)}`}
             </span>
             <Link
               to={`/confirm?harvest=${harvest.id}&demand=${demand.id}`}
