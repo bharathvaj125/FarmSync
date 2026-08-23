@@ -14,7 +14,7 @@ import {
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/AuthContext'
-import { fetchWeatherForecast, ZONES, type DailyWeather } from '../lib/weather'
+import { fetchWeatherForecast, fetchHistoricalWeather, ZONES, type DailyWeather } from '../lib/weather'
 import { computeHarvestSuggestion, type HarvestSuggestion } from '../lib/harvestSuggestion'
 import { forecastNextPeriod, type ForecastResult } from '../lib/forecasting'
 import type { HarvestLog } from '../lib/types'
@@ -396,10 +396,13 @@ function WeatherPanel({
  * what actually happened over time. Once at least two entries exist,
  * this reuses the exact same OLS trend fit as the shop's demand
  * forecast (forecastNextPeriod) on the farmer's own picking history --
- * a genuine prediction, not a weather-conditioned one (there's no
- * historical weather-outcome data logged, so that stays honestly out of
- * scope; this only ever learns the trend in dates and quantities the
- * farmer has actually entered).
+ * a genuine prediction, but a date-trend one, not a weather-conditioned
+ * one. Each entry also captures the real historical rainfall/temperature
+ * over that exact period (best-effort, via fetchHistoricalWeather) --
+ * the raw (weather, yield) pairs a genuine weather-conditioned model
+ * would need. That model isn't built here; there's nowhere near enough
+ * of these logged yet across enough farmers and seasons to train it
+ * honestly. This just starts collecting the material now.
  */
 function HarvestLogPanel({
   crop,
@@ -461,6 +464,9 @@ function HarvestLogPanel({
       return
     }
     setAdding(true)
+    // Best-effort -- never blocks the log entry if the archive can't be
+    // reached or hasn't backfilled these dates yet.
+    const historicalWeather = await fetchHistoricalWeather(zone, periodStart, periodEnd)
     const { error: insertError } = await supabase.from('harvest_logs').insert({
       owner_id: profile.id,
       crop,
@@ -468,6 +474,8 @@ function HarvestLogPanel({
       period_start: periodStart,
       period_end: periodEnd,
       quantity_kg: Number(quantity),
+      rainfall_mm: historicalWeather?.totalRainfallMm ?? null,
+      avg_temp_max_c: historicalWeather?.avgTempMaxC ?? null,
     })
     if (insertError) {
       setRangeError(insertError.message)
@@ -552,6 +560,9 @@ function HarvestLogPanel({
                 className="rounded-full border border-sand-300 bg-sand-50 px-2 py-0.5 text-[11px] text-sand-600"
               >
                 {rangeLabel}: <span className="tabular font-medium text-sand-800">{h.quantity_kg}kg</span>
+                {h.rainfall_mm !== null && (
+                  <span className="text-sand-400"> · {h.rainfall_mm}mm rain</span>
+                )}
               </span>
             )
           })}

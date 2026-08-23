@@ -85,3 +85,52 @@ export async function fetchWeatherForecast(zone: string, days = 5): Promise<Dail
     tempMinC: tMin[i] ?? 0,
   }))
 }
+
+export interface HistoricalWeatherSummary {
+  totalRainfallMm: number
+  avgTempMaxC: number
+}
+
+/**
+ * Real historical weather for a past date range -- Open-Meteo's archive
+ * endpoint, same free/no-key deal as the forecast one above, verified
+ * directly before wiring this up. Used to capture what conditions a
+ * farmer's logged picking period actually saw (see harvest_logs.
+ * rainfall_mm) -- the raw (weather, yield) pairs a genuine weather-
+ * conditioned yield model would need to train on. That model doesn't
+ * exist yet; there's nowhere near enough of these logged across enough
+ * farmers and seasons. This only starts collecting the material honestly,
+ * same principle as the picking log itself. Returns null on any failure
+ * (including very recent dates the archive hasn't backfilled yet) --
+ * logging a harvest never blocks on this succeeding.
+ */
+export async function fetchHistoricalWeather(
+  zone: string,
+  startDate: string,
+  endDate: string,
+): Promise<HistoricalWeatherSummary | null> {
+  const coords = ZONE_COORDINATES[zone]
+  if (!coords) return null
+
+  const url =
+    `https://archive-api.open-meteo.com/v1/archive?latitude=${coords.lat}&longitude=${coords.lon}` +
+    `&start_date=${startDate}&end_date=${endDate}` +
+    `&daily=precipitation_sum,temperature_2m_max&timezone=Asia%2FCalcutta`
+
+  try {
+    const res = await fetch(url)
+    if (!res.ok) return null
+    const data = await res.json()
+    const rain: number[] = data.daily?.precipitation_sum ?? []
+    const tMax: number[] = data.daily?.temperature_2m_max ?? []
+    if (rain.length === 0 || tMax.length === 0) return null
+    const totalRainfallMm = rain.reduce((a: number, b: number) => a + b, 0)
+    const avgTempMaxC = tMax.reduce((a: number, b: number) => a + b, 0) / tMax.length
+    return {
+      totalRainfallMm: Math.round(totalRainfallMm * 10) / 10,
+      avgTempMaxC: Math.round(avgTempMaxC * 10) / 10,
+    }
+  } catch {
+    return null
+  }
+}

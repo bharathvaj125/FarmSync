@@ -23,6 +23,12 @@ export interface HarvestLog {
   period_start: string
   period_end: string
   quantity_kg: number
+  // Real historical weather over [period_start, period_end], captured
+  // best-effort at log time (see fetchHistoricalWeather) -- the raw
+  // material a future weather-conditioned yield model needs. Null when
+  // the fetch failed or the dates were too recent for the archive.
+  rainfall_mm: number | null
+  avg_temp_max_c: number | null
   created_at: string
 }
 
