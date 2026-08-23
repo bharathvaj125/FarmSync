@@ -72,7 +72,7 @@ export default function Overview() {
             icon={Wallet}
             label="Farmer uplift"
             value={inr(metrics.farmerUpliftVsHighestPrice)}
-            caption="Net realization vs. naive highest-price selling"
+            caption="Extra net realization per kg matched, vs. naive highest-price selling"
             accent="brand"
           />
           <StatCard

@@ -602,7 +602,21 @@ export function computePlatformMetrics(
     (sum, a) => sum + a.deals.reduce((s, d) => s + d.net_realization, 0),
     0,
   )
-  const farmerUpliftVsHighestPrice = optimizedRealization - naiveRealization
+  // Comparing the two RAW totals directly is misleading: the optimized
+  // and naive strategies rank candidates differently, so in a shared,
+  // contested resource pool (allocateAllHarvests) they don't necessarily
+  // end up matching the SAME total kg -- a naive run that happens to
+  // spread harvests across more buyers can rack up a bigger sum purely
+  // from moving more volume, even while realizing LESS per kg than the
+  // optimized run. Comparing average realization per kg first, then
+  // scaling by the volume actually traded under the optimized strategy,
+  // is the fair apples-to-apples version: "for the kg you actually sold
+  // via FarmSync, how much more did each one realize."
+  const optimizedKg = optimizedAllocations.reduce((sum, a) => sum + a.allocated_kg, 0)
+  const naiveKg = naiveAllocations.reduce((sum, a) => sum + a.allocated_kg, 0)
+  const optimizedPerKg = optimizedKg > 0 ? optimizedRealization / optimizedKg : 0
+  const naivePerKg = naiveKg > 0 ? naiveRealization / naiveKg : 0
+  const farmerUpliftVsHighestPrice = (optimizedPerKg - naivePerKg) * optimizedKg
 
   const confirmedDeals = optimizedAllocations.flatMap((a) => a.deals)
   const matchedDemandCount = new Set(confirmedDeals.map((d) => d.demandRequest.id)).size
