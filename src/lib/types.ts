@@ -69,6 +69,11 @@ export interface CandidateDeal {
   landed_cost: number // buyer side
   landed_cost_per_kg: number
   score: number
+  // Count of prior completed transactions between this exact farmer and
+  // buyer -- feeds a small, capped ranking nudge (see SCORING_CONFIG.
+  // trackRecordBonusPerDealPerKg) that only breaks near-ties, never the
+  // real money above. 0 for a first-time pairing.
+  priorDealsCount: number
   explanation: string
 }
 

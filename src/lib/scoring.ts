@@ -1,4 +1,4 @@
-import type { Allocation, CandidateDeal, DemandRequest, HarvestOffer, TransportOption } from './types'
+import type { Allocation, CandidateDeal, DemandRequest, HarvestOffer, Transaction, TransportOption } from './types'
 import type { DailyWeather } from './weather'
 
 /**
@@ -17,12 +17,50 @@ export const SCORING_CONFIG = {
   riskWeight: 0.15,
   // % of trade value at risk per mm of forecasted rain on the delivery day, at either end of the route
   weatherRiskPerMm: 0.002,
+  // ₹/kg ranking nudge per prior completed deal between this exact
+  // farmer and buyer -- deliberately small (a handful of paise) so it
+  // only breaks near-ties between otherwise-similar deals; it never
+  // touches net_realization/landed_cost, only the sort order, and is
+  // always disclosed in the explanation when it applies.
+  trackRecordBonusPerDealPerKg: 0.25,
+  // caps the bonus so a very long history can't start dominating real
+  // economic differences between deals
+  trackRecordBonusMaxDeals: 5,
 }
 
 const QUALITY_RANK: Record<string, number> = { C: 1, B: 2, A: 3 }
 
 /** Per-zone daily forecasts, indexed the same way fetchWeatherForecast returns them (index 0 = today). */
 export type WeatherByZone = Record<string, DailyWeather[]>
+
+/** Count of prior completed transactions between one farmer and one buyer, keyed `${farmerOwnerId}:${buyerOwnerId}`. */
+export type TrackRecordMap = Map<string, number>
+
+/**
+ * Builds the counterparty history map from data every dashboard already
+ * has in memory (transactions + the harvest/demand rows they reference)
+ * -- no extra query needed. A transaction only stores harvest_offer_id/
+ * demand_request_id, so this joins back through the still-live harvest/
+ * demand rows (never deleted, only decremented) to find each side's real
+ * owner_id.
+ */
+export function buildTrackRecordMap(
+  transactions: Transaction[],
+  harvests: HarvestOffer[],
+  demands: DemandRequest[],
+): TrackRecordMap {
+  const harvestOwnerById = new Map(harvests.map((h) => [h.id, h.owner_id]))
+  const demandOwnerById = new Map(demands.map((d) => [d.id, d.owner_id]))
+  const map: TrackRecordMap = new Map()
+  for (const txn of transactions) {
+    const farmerOwner = harvestOwnerById.get(txn.harvest_offer_id)
+    const buyerOwner = demandOwnerById.get(txn.demand_request_id)
+    if (!farmerOwner || !buyerOwner) continue
+    const key = `${farmerOwner}:${buyerOwner}`
+    map.set(key, (map.get(key) ?? 0) + 1)
+  }
+  return map
+}
 
 /**
  * Route-weather risk, as a fraction of trade value. Looks at forecasted
@@ -67,6 +105,7 @@ export function generateCandidateDeals(
   demands: DemandRequest[],
   transportOptions: TransportOption[],
   weatherByZone: WeatherByZone = {},
+  trackRecord: TrackRecordMap = new Map(),
 ): CandidateDeal[] {
   const candidates: CandidateDeal[] = []
 
@@ -117,7 +156,12 @@ export function generateCandidateDeals(
     const landed_cost = grossRevenue + transport_cost + spoilage_loss + risk_loss + weather_risk_loss
     const landed_cost_per_kg = landed_cost / quantity_kg
 
-    const score = net_realization / quantity_kg // per-kg score, comparable across deal sizes
+    const priorDealsCount =
+      harvest.owner_id && demand.owner_id ? (trackRecord.get(`${harvest.owner_id}:${demand.owner_id}`) ?? 0) : 0
+    const trackRecordBonus =
+      Math.min(priorDealsCount, SCORING_CONFIG.trackRecordBonusMaxDeals) * SCORING_CONFIG.trackRecordBonusPerDealPerKg
+
+    const score = net_realization / quantity_kg + trackRecordBonus // per-kg score, comparable across deal sizes
 
     const explanation = buildExplanation({
       harvest,
@@ -128,6 +172,8 @@ export function generateCandidateDeals(
       risk_loss,
       weather_risk_loss,
       quantity_kg,
+      priorDealsCount,
+      trackRecordBonus,
     })
 
     candidates.push({
@@ -144,6 +190,7 @@ export function generateCandidateDeals(
       landed_cost,
       landed_cost_per_kg,
       score,
+      priorDealsCount,
       explanation,
     })
   }
@@ -160,18 +207,35 @@ function buildExplanation(args: {
   risk_loss: number
   weather_risk_loss: number
   quantity_kg: number
+  priorDealsCount: number
+  trackRecordBonus: number
 }): string {
-  const { harvest, demand, unit_price, transport_cost, spoilage_loss, risk_loss, weather_risk_loss, quantity_kg } = args
+  const {
+    harvest,
+    demand,
+    unit_price,
+    transport_cost,
+    spoilage_loss,
+    risk_loss,
+    weather_risk_loss,
+    quantity_kg,
+    priorDealsCount,
+    trackRecordBonus,
+  } = args
   const transportPerKg = transport_cost / quantity_kg
   const spoilagePerKg = spoilage_loss / quantity_kg
   const riskPerKg = risk_loss / quantity_kg
   const weatherPerKg = weather_risk_loss / quantity_kg
   const weatherClause = weatherPerKg > 0 ? `, and ₹${weatherPerKg.toFixed(2)}/kg forecasted route-weather risk` : ''
+  const trackRecordClause =
+    priorDealsCount > 0
+      ? ` Ranked ₹${trackRecordBonus.toFixed(2)}/kg higher for ${priorDealsCount} prior completed deal${priorDealsCount === 1 ? '' : 's'} between ${harvest.farmer_name} and ${demand.buyer_name} -- a ranking nudge only, not part of the money above.`
+      : ''
   return (
     `${harvest.farmer_name} asks ₹${harvest.minimum_price}/kg, ${demand.buyer_name} offers up to ₹${demand.max_price}/kg, ` +
     `negotiated at ₹${unit_price.toFixed(2)}/kg. After ₹${transportPerKg.toFixed(2)}/kg transport, ` +
     `₹${spoilagePerKg.toFixed(2)}/kg expected spoilage, ₹${riskPerKg.toFixed(2)}/kg reliability risk${weatherClause}, ` +
-    `net realization is ₹${(unit_price - transportPerKg - spoilagePerKg - riskPerKg - weatherPerKg).toFixed(2)}/kg.`
+    `net realization is ₹${(unit_price - transportPerKg - spoilagePerKg - riskPerKg - weatherPerKg).toFixed(2)}/kg.${trackRecordClause}`
   )
 }
 
@@ -186,8 +250,9 @@ export function allocateHarvest(
   demands: DemandRequest[],
   transportOptions: TransportOption[],
   weatherByZone: WeatherByZone = {},
+  trackRecord: TrackRecordMap = new Map(),
 ): Allocation {
-  const candidates = generateCandidateDeals(harvest, demands, transportOptions, weatherByZone)
+  const candidates = generateCandidateDeals(harvest, demands, transportOptions, weatherByZone, trackRecord)
   return greedyFill(harvest, candidates)
 }
 
@@ -217,8 +282,9 @@ export function allocateAllHarvests(
   demands: DemandRequest[],
   transportOptions: TransportOption[],
   weatherByZone: WeatherByZone = {},
+  trackRecord: TrackRecordMap = new Map(),
 ): Allocation[] {
-  return globalGreedyMatch(harvests, demands, transportOptions, (a, b) => b.score - a.score, weatherByZone)
+  return globalGreedyMatch(harvests, demands, transportOptions, (a, b) => b.score - a.score, weatherByZone, trackRecord)
 }
 
 /** Same shared resource pool, but ranks every candidate by headline price instead of net realization -- for the Overview uplift comparison. */
@@ -237,10 +303,11 @@ function globalGreedyMatch(
   transportOptions: TransportOption[],
   comparator: (a: CandidateDeal, b: CandidateDeal) => number,
   weatherByZone: WeatherByZone = {},
+  trackRecord: TrackRecordMap = new Map(),
 ): Allocation[] {
   const allCandidates: CandidateDeal[] = []
   for (const harvest of harvests) {
-    allCandidates.push(...generateCandidateDeals(harvest, demands, transportOptions, weatherByZone))
+    allCandidates.push(...generateCandidateDeals(harvest, demands, transportOptions, weatherByZone, trackRecord))
   }
   allCandidates.sort(comparator)
 
@@ -388,10 +455,11 @@ export function rankSuppliersForDemand(
   harvests: HarvestOffer[],
   transportOptions: TransportOption[],
   weatherByZone: WeatherByZone = {},
+  trackRecord: TrackRecordMap = new Map(),
 ): CandidateDeal[] {
   const candidates: CandidateDeal[] = []
   for (const harvest of harvests) {
-    const dealsForThisHarvest = generateCandidateDeals(harvest, [demand], transportOptions, weatherByZone)
+    const dealsForThisHarvest = generateCandidateDeals(harvest, [demand], transportOptions, weatherByZone, trackRecord)
     candidates.push(...dealsForThisHarvest)
   }
   return candidates.sort((a, b) => a.landed_cost_per_kg - b.landed_cost_per_kg)
@@ -584,6 +652,7 @@ export function whatIf(
     extraDelayDays?: number
   },
   weatherByZone: WeatherByZone = {},
+  trackRecord: TrackRecordMap = new Map(),
 ): Allocation {
   const adjustedHarvest: HarvestOffer = {
     ...harvest,
@@ -602,5 +671,5 @@ export function whatIf(
     cost: t.cost * (overrides.transportCostMultiplier ?? 1),
   }))
 
-  return allocateHarvest(adjustedHarvest, adjustedDemands, adjustedTransport, weatherByZone)
+  return allocateHarvest(adjustedHarvest, adjustedDemands, adjustedTransport, weatherByZone, trackRecord)
 }

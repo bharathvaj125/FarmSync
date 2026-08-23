@@ -1,10 +1,22 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { CloudRain, Thermometer, Users, Gauge, ClipboardCheck, Plus } from 'lucide-react'
+import {
+  CloudRain,
+  Thermometer,
+  Users,
+  Gauge,
+  ClipboardCheck,
+  Plus,
+  Brain,
+  TrendingUp,
+  TrendingDown,
+  Minus,
+} from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/AuthContext'
 import { fetchWeatherForecast, ZONES, type DailyWeather } from '../lib/weather'
 import { computeHarvestSuggestion, type HarvestSuggestion } from '../lib/harvestSuggestion'
+import { forecastNextPeriod, type ForecastResult } from '../lib/forecasting'
 import type { HarvestLog } from '../lib/types'
 
 export default function CreateHarvest() {
@@ -121,7 +133,11 @@ export default function CreateHarvest() {
       <div className="mb-6 space-y-4">
         <NearbyDemandPanel crop={form.crop} loading={demandLoading} byZone={demandByZone} total={totalDemand} />
         <WeatherPanel zone={form.zone} loading={weatherLoading} error={weatherError} forecast={forecast} />
-        <HarvestLogPanel crop={form.crop} zone={form.zone} />
+        <HarvestLogPanel
+          crop={form.crop}
+          zone={form.zone}
+          onUseSuggestion={(qty) => setForm((f) => ({ ...f, quantity_kg: String(qty) }))}
+        />
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4 rounded-2xl border border-sand-200 bg-sand-100 p-6">
@@ -377,12 +393,23 @@ function WeatherPanel({
  * Same shape and purpose as the shop's sales log (CreateDemand.tsx): a
  * recurring date-range log, not a single number. Produce like tomatoes
  * gets picked in rounds over weeks, not in one event, so this captures
- * what actually happened over time -- the raw material a future
- * weather-to-yield model needs. No forecast shown here yet (unlike the
- * shop's version) since that model doesn't exist until this data has
- * accumulated across many farmers and seasons -- see the roadmap.
+ * what actually happened over time. Once at least two entries exist,
+ * this reuses the exact same OLS trend fit as the shop's demand
+ * forecast (forecastNextPeriod) on the farmer's own picking history --
+ * a genuine prediction, not a weather-conditioned one (there's no
+ * historical weather-outcome data logged, so that stays honestly out of
+ * scope; this only ever learns the trend in dates and quantities the
+ * farmer has actually entered).
  */
-function HarvestLogPanel({ crop, zone }: { crop: string; zone: string }) {
+function HarvestLogPanel({
+  crop,
+  zone,
+  onUseSuggestion,
+}: {
+  crop: string
+  zone: string
+  onUseSuggestion: (quantity: number) => void
+}) {
   const { profile } = useAuth()
   const [history, setHistory] = useState<HarvestLog[]>([])
   const [loading, setLoading] = useState(true)
@@ -396,7 +423,16 @@ function HarvestLogPanel({ crop, zone }: { crop: string; zone: string }) {
   // the wrong calendar day for anyone east of UTC (e.g. IST) part of the day.
   const formatLocal = (d: Date) =>
     `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  const addLocalDays = (dateStr: string, days: number) => {
+    const d = new Date(`${dateStr}T00:00:00`)
+    d.setDate(d.getDate() + days)
+    return formatLocal(d)
+  }
   const today = formatLocal(new Date())
+  const tomorrow = addLocalDays(today, 1)
+
+  const [predictFrom, setPredictFrom] = useState(tomorrow)
+  const [predictTo, setPredictTo] = useState(addLocalDays(tomorrow, 6))
 
   async function load() {
     if (!profile) return
@@ -445,6 +481,14 @@ function HarvestLogPanel({ crop, zone }: { crop: string; zone: string }) {
     load()
   }
 
+  const customForecast: ForecastResult | null =
+    predictFrom && predictTo && predictTo >= predictFrom ? forecastNextPeriod(history, predictFrom, predictTo) : null
+
+  function applyPreset(days: number) {
+    setPredictFrom(tomorrow)
+    setPredictTo(addLocalDays(tomorrow, days - 1))
+  }
+
   return (
     <div className="rounded-xl border border-sand-300 bg-sand-100 p-4">
       <div className="mb-2 flex items-center gap-2">
@@ -452,9 +496,9 @@ function HarvestLogPanel({ crop, zone }: { crop: string; zone: string }) {
         <h3 className="font-display text-xs font-semibold text-sand-900">Picking log — {crop}</h3>
       </div>
       <p className="mb-3 text-xs text-sand-500">
-        Log what you actually picked over past date ranges — this is what makes real yield
-        prediction possible later, once enough of these build up across seasons. Doesn't affect
-        this listing.
+        Log what you actually picked over past date ranges — once you've logged at least two, a
+        regression model fit on your own history predicts your next picking round below. Doesn't
+        affect this listing unless you choose to use it.
       </p>
 
       <form onSubmit={handleAdd} className="mb-2 flex flex-wrap gap-2">
@@ -515,6 +559,94 @@ function HarvestLogPanel({ crop, zone }: { crop: string; zone: string }) {
       )}
       {!loading && history.length === 0 && (
         <p className="text-xs text-sand-400">No picking history logged yet for {crop}.</p>
+      )}
+
+      {!loading && history.length >= 1 && history.length < 2 && (
+        <p className="mt-2 text-xs text-sand-400">Add one more entry to get a prediction (need at least 2).</p>
+      )}
+
+      {!loading && history.length >= 2 && (
+        <div className="mt-3 border-t border-sand-200 pt-3">
+          <div className="mb-2 flex items-center gap-2">
+            <Brain size={14} className="text-brand-400" />
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-sand-500">
+              Predicted next picking
+            </p>
+          </div>
+
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <span className="text-xs text-sand-500">Picking from</span>
+            <input
+              type="date"
+              value={predictFrom}
+              min={today}
+              onChange={(e) => setPredictFrom(e.target.value)}
+              className="w-36 rounded-md border border-sand-300 bg-sand-50 px-2 py-1.5 text-xs"
+              aria-label="Predict from"
+            />
+            <span className="text-xs text-sand-500">to</span>
+            <input
+              type="date"
+              value={predictTo}
+              min={predictFrom || today}
+              onChange={(e) => setPredictTo(e.target.value)}
+              className="w-36 rounded-md border border-sand-300 bg-sand-50 px-2 py-1.5 text-xs"
+              aria-label="Predict to"
+            />
+            <button
+              type="button"
+              onClick={() => applyPreset(7)}
+              className="rounded-md border border-sand-300 px-2 py-1 text-[11px] font-medium text-sand-600 hover:bg-sand-100"
+            >
+              Next 7 days
+            </button>
+            <button
+              type="button"
+              onClick={() => applyPreset(30)}
+              className="rounded-md border border-sand-300 px-2 py-1 text-[11px] font-medium text-sand-600 hover:bg-sand-100"
+            >
+              Next 30 days
+            </button>
+          </div>
+
+          {customForecast ? (
+            <div className="rounded-lg border border-brand-200 bg-sand-50 p-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-sand-800">
+                  {customForecast.targetStart} → {customForecast.targetEnd}
+                </span>
+                <span className="flex items-center gap-1 text-[11px] font-medium text-sand-500">
+                  {customForecast.trend === 'increasing' && <TrendingUp size={12} className="text-brand-400" />}
+                  {customForecast.trend === 'decreasing' && <TrendingDown size={12} className="text-amber-400" />}
+                  {customForecast.trend === 'stable' && <Minus size={12} className="text-sand-400" />}
+                  {customForecast.trend}
+                </span>
+              </div>
+
+              <div className="mt-1.5 flex items-baseline justify-between">
+                <span className="tabular font-display text-xl font-bold text-brand-700">
+                  {customForecast.predictedQuantity}kg
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onUseSuggestion(customForecast.predictedQuantity)}
+                  className="rounded-md border border-brand-200 px-2.5 py-1 text-xs font-medium text-brand-700 hover:bg-brand-100"
+                >
+                  Use this
+                </button>
+              </div>
+
+              <p className="mt-2 text-[11px] leading-relaxed text-sand-500">
+                Trend fit on {customForecast.periodsUsed} logged {customForecast.periodsUsed === 1 ? 'entry' : 'entries'} —{' '}
+                {customForecast.slopePerDay >= 0 ? '+' : ''}
+                {customForecast.slopePerDay}kg/day change over time. Same regression technique as the shop's
+                demand forecast, applied to your own picking history — not weather-conditioned.
+              </p>
+            </div>
+          ) : (
+            <p className="text-xs text-sand-400">Pick a valid date range to see a prediction.</p>
+          )}
+        </div>
       )}
     </div>
   )

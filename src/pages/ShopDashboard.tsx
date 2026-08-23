@@ -2,7 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Landmark, Plus, HandCoins, Radio } from 'lucide-react'
 import { supabase } from '../lib/supabase'
-import { findCollectiveBuyingOpportunities, rankSuppliersForDemand, type WeatherByZone } from '../lib/scoring'
+import {
+  findCollectiveBuyingOpportunities,
+  rankSuppliersForDemand,
+  buildTrackRecordMap,
+  type TrackRecordMap,
+  type WeatherByZone,
+} from '../lib/scoring'
 import { fetchWeatherForecast, ZONE_COORDINATES } from '../lib/weather'
 import { useLiveSync } from '../lib/useLiveSync'
 import { inr, inrPerKg, kg } from '../lib/format'
@@ -148,6 +154,15 @@ function ShopDashboardBody({
 }) {
   const { profile } = useAuth()
 
+  // Built fresh from data already loaded above -- no extra query. Only
+  // shows up as disclosure text on a candidate's explanation (see
+  // buildExplanation); it never reorders the cost-based supplier ranking
+  // below, which stays strictly cheapest-landed-cost-first as promised.
+  const trackRecord = useMemo(
+    () => buildTrackRecordMap(transactions, harvests, demands),
+    [transactions, harvests, demands],
+  )
+
   // Only this shop's own demand requests are shown, and only the ones
   // still actually needing something -- a demand fully covered by a
   // confirmed deal has quantity_kg driven down to 0 by confirm_transaction,
@@ -244,6 +259,7 @@ function ShopDashboardBody({
           harvests={harvests}
           transport={transport}
           weatherByZone={weatherByZone}
+          trackRecord={trackRecord}
           dealRequests={dealRequests}
           myProfileId={profile?.id ?? null}
         />
@@ -257,6 +273,7 @@ function DemandPanel({
   harvests,
   transport,
   weatherByZone,
+  trackRecord,
   dealRequests,
   myProfileId,
 }: {
@@ -264,14 +281,15 @@ function DemandPanel({
   harvests: HarvestOffer[]
   transport: TransportOption[]
   weatherByZone: WeatherByZone
+  trackRecord: TrackRecordMap
   dealRequests: DealRequest[]
   myProfileId: string | null
 }) {
   const [suppliers, setSuppliers] = useState<CandidateDeal[] | null>(null)
 
   useEffect(() => {
-    setSuppliers(rankSuppliersForDemand(demand, harvests, transport, weatherByZone))
-  }, [demand, harvests, transport, weatherByZone])
+    setSuppliers(rankSuppliersForDemand(demand, harvests, transport, weatherByZone, trackRecord))
+  }, [demand, harvests, transport, weatherByZone, trackRecord])
 
   if (!suppliers) return null
   if (suppliers.length === 0) {

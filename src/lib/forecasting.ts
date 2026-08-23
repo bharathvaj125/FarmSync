@@ -23,6 +23,19 @@ export interface SalesRecord {
   created_at: string
 }
 
+/**
+ * The only shape the regression itself actually needs -- a date range and
+ * a quantity. SalesRecord and HarvestLog both satisfy this structurally,
+ * so the exact same fit works for a shop's sales history and a farmer's
+ * picking log without either one needing the other's unrelated fields
+ * (owner_id's nullability differs between the two, for instance).
+ */
+export interface PeriodRecord {
+  period_start: string
+  period_end: string
+  quantity_kg: number
+}
+
 export interface ForecastResult {
   predictedQuantity: number
   trend: 'increasing' | 'decreasing' | 'stable'
@@ -77,7 +90,7 @@ function fitTrend(x: number[], y: number[]): [number, number] {
  *   most recent entry ("next week's order") if not given.
  */
 export function forecastNextPeriod(
-  history: SalesRecord[],
+  history: PeriodRecord[],
   targetStart?: string,
   targetEnd?: string,
 ): ForecastResult | null {
@@ -87,7 +100,7 @@ export function forecastNextPeriod(
   const anchor = sorted[0].period_start
   const n = sorted.length
 
-  const periodLengthDays = (h: SalesRecord) => daysBetween(h.period_start, h.period_end) + 1
+  const periodLengthDays = (h: PeriodRecord) => daysBetween(h.period_start, h.period_end) + 1
   const x = sorted.map((h) => daysBetween(anchor, midpointDate(h.period_start, h.period_end)))
   const y = sorted.map((h) => h.quantity_kg / periodLengthDays(h)) // kg per day
 

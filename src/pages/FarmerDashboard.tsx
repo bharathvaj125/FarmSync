@@ -2,7 +2,15 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { TrendingUp, AlertTriangle, Plus, HandCoins, Radio } from 'lucide-react'
 import { supabase } from '../lib/supabase'
-import { allocateAllHarvests, allocateHarvest, availableResourcesFor, whatIf, type WeatherByZone } from '../lib/scoring'
+import {
+  allocateAllHarvests,
+  allocateHarvest,
+  availableResourcesFor,
+  buildTrackRecordMap,
+  whatIf,
+  type TrackRecordMap,
+  type WeatherByZone,
+} from '../lib/scoring'
 import { fetchWeatherForecast, ZONE_COORDINATES } from '../lib/weather'
 import { useLiveSync } from '../lib/useLiveSync'
 import { inr, inrPerKg, kg } from '../lib/format'
@@ -36,6 +44,14 @@ export default function FarmerDashboard() {
   useEffect(() => {
     harvestsRef.current = harvests
   }, [harvests])
+
+  // Built fresh from data already loaded above -- no extra query. Feeds a
+  // small, capped ranking nudge (see SCORING_CONFIG.trackRecordBonus*)
+  // toward buyers this farmer has actually completed deals with before.
+  const trackRecord = useMemo(
+    () => buildTrackRecordMap(transactions, harvests, demands),
+    [transactions, harvests, demands],
+  )
 
   async function load() {
     const [h, d, t, r, txns] = await Promise.all([
@@ -210,6 +226,7 @@ export default function FarmerDashboard() {
           demands={demands}
           transport={transport}
           weatherByZone={weatherByZone}
+          trackRecord={trackRecord}
           dealRequests={dealRequests}
           myProfileId={profile?.id ?? null}
         />
@@ -225,6 +242,7 @@ function HarvestPanel({
   demands,
   transport,
   weatherByZone,
+  trackRecord,
   dealRequests,
   myProfileId,
 }: {
@@ -234,6 +252,7 @@ function HarvestPanel({
   demands: DemandRequest[]
   transport: TransportOption[]
   weatherByZone: WeatherByZone
+  trackRecord: TrackRecordMap
   dealRequests: DealRequest[]
   myProfileId: string | null
 }) {
@@ -243,9 +262,9 @@ function HarvestPanel({
   // could both show as fully satisfying the same buyer's order (see
   // allocateAllHarvests in scoring.ts for why that was a real bug here).
   const { demands: availableDemands, transportOptions: availableTransport } = useMemo(() => {
-    const baseAllocations = allocateAllHarvests(harvests, demands, transport, weatherByZone)
+    const baseAllocations = allocateAllHarvests(harvests, demands, transport, weatherByZone, trackRecord)
     return availableResourcesFor(harvestIndex, demands, transport, baseAllocations)
-  }, [harvestIndex, harvests, demands, transport, weatherByZone])
+  }, [harvestIndex, harvests, demands, transport, weatherByZone, trackRecord])
 
   const [whatIfState, setWhatIfState] = useState<WhatIfState>(DEFAULT_WHAT_IF)
   const [allocation, setAllocation] = useState<Allocation | null>(null)
@@ -254,12 +273,14 @@ function HarvestPanel({
 
   useEffect(() => {
     function recompute() {
-      const base = allocateHarvest(harvest, availableDemands, availableTransport, weatherByZone)
+      const base = allocateHarvest(harvest, availableDemands, availableTransport, weatherByZone, trackRecord)
       setBaselineTopBuyerId(base.deals[0]?.demandRequest.id ?? null)
 
       const active = isWhatIfActive(whatIfState)
       setAllocation(
-        active ? whatIf(harvest, availableDemands, availableTransport, whatIfState, weatherByZone) : base,
+        active
+          ? whatIf(harvest, availableDemands, availableTransport, whatIfState, weatherByZone, trackRecord)
+          : base,
       )
     }
 
@@ -280,7 +301,7 @@ function HarvestPanel({
 
     const timer = setTimeout(recompute, 200)
     return () => clearTimeout(timer)
-  }, [harvest, availableDemands, availableTransport, whatIfState, weatherByZone])
+  }, [harvest, availableDemands, availableTransport, whatIfState, weatherByZone, trackRecord])
 
   if (!allocation) return null
 
