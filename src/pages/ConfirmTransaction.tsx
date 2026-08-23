@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { CheckCircle2, ArrowLeft, Phone, Mail, Clock, Clock3, Check, X, Upload, Truck as TruckIcon } from 'lucide-react'
+import { CheckCircle2, ArrowLeft, Phone, Mail, Clock, Clock3, Lock, Check, X, Upload, Truck as TruckIcon } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { generateCandidateDeals, daysUntilDelivery, type WeatherByZone } from '../lib/scoring'
 import { fetchWeatherForecast, distanceBetweenZonesKm } from '../lib/weather'
@@ -472,6 +472,11 @@ export default function ConfirmTransaction() {
               paid={transaction.transport_payment_status === 'paid'}
               screenshotPath={transaction.transport_payment_screenshot_path}
               onUploaded={load}
+              blockedReason={
+                transaction.payment_status === 'paid'
+                  ? null
+                  : `Opens once ${demand.buyer_name} pays for the produce -- the truck gets paid from that.`
+              }
             />
           </div>
         ) : (
@@ -680,6 +685,7 @@ function PaymentLegCard({
   paid,
   screenshotPath,
   onUploaded,
+  blockedReason,
 }: {
   transactionId: string
   leg: 'produce' | 'transport'
@@ -692,6 +698,11 @@ function PaymentLegCard({
   paid: boolean
   screenshotPath: string | null
   onUploaded: () => void
+  // When set (and not yet paid), the payer sees this instead of the
+  // upload control -- e.g. the farmer can't pay the truck until the
+  // buyer's produce payment is confirmed, so the money to pay it with
+  // has actually arrived.
+  blockedReason?: string | null
 }) {
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
@@ -754,6 +765,10 @@ function PaymentLegCard({
               />
             </a>
           )}
+        </div>
+      ) : blockedReason ? (
+        <div className="mt-2 flex items-center gap-2 rounded-lg border border-sand-300 bg-sand-50 px-3 py-2 text-sm text-sand-500">
+          <Lock size={14} className="flex-none" /> {blockedReason}
         </div>
       ) : isPayer ? (
         <div className="mt-2 space-y-2.5">
