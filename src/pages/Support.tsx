@@ -1,18 +1,28 @@
 import { useEffect, useState } from 'react'
-import { LifeBuoy, Send, CheckCircle2, Clock3 } from 'lucide-react'
+import { LifeBuoy, Send, CheckCircle2, Clock3, Phone, Mail, ShieldCheck } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/AuthContext'
 import { useLiveSync } from '../lib/useLiveSync'
 import type { SupportMessage } from '../lib/types'
 
+interface AdminContact {
+  id: string
+  display_name: string
+  email: string
+  phone_number: string | null
+}
+
 /**
  * A direct line to the admin for anything outside the normal deal/
- * payment/truck flows -- a dispute, a bug, a question. Shows the
- * sender's own message history below the form so they can see it was
- * received and whether the admin has resolved it, live.
+ * payment/truck flows -- a dispute, a bug, a question. Leads with the
+ * admin's own phone/email for anything urgent enough not to wait on a
+ * message being read, then the form, then the sender's own message
+ * history below so they can see it was received and whether the admin
+ * has resolved it, live.
  */
 export default function Support() {
   const { profile } = useAuth()
+  const [admins, setAdmins] = useState<AdminContact[]>([])
   const [subject, setSubject] = useState('')
   const [message, setMessage] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -36,6 +46,15 @@ export default function Support() {
     load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile?.id])
+
+  useEffect(() => {
+    supabase
+      .from('profiles')
+      .select('id,display_name,email,phone_number')
+      .eq('role', 'admin')
+      .order('display_name')
+      .then(({ data }) => setAdmins((data as AdminContact[]) ?? []))
+  }, [])
 
   useLiveSync(['support_messages'], load)
 
@@ -76,6 +95,31 @@ export default function Support() {
           <p className="text-sm text-sand-500">Send anything to the admin — a dispute, a bug, a question.</p>
         </div>
       </div>
+
+      {admins.length > 0 && (
+        <div className="mb-6 rounded-2xl border border-brand-200 bg-brand-50 p-5">
+          <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-sand-500">
+            <ShieldCheck size={13} className="text-brand-600" /> Contact the admin directly
+          </div>
+          <div className="space-y-2.5">
+            {admins.map((admin) => (
+              <div key={admin.id}>
+                <p className="text-sm font-medium text-sand-900">{admin.display_name}</p>
+                <div className="mt-0.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-sand-600">
+                  {admin.phone_number && (
+                    <span className="flex items-center gap-1.5">
+                      <Phone size={12} className="text-sand-400" /> {admin.phone_number}
+                    </span>
+                  )}
+                  <span className="flex items-center gap-1.5">
+                    <Mail size={12} className="text-sand-400" /> {admin.email}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="space-y-4 rounded-2xl border border-sand-200 bg-sand-100 p-6">
         <Field label="Subject">
